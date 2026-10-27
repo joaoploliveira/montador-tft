@@ -28,7 +28,8 @@ PENALIDADE_RARIDADE = 2.0       # extra para custos que aparecem pouco na loja n
 PENALIDADE_INDISPONIVEL = 3.0   # campeão que ainda não aparece na loja no seu nível
 PESO_DADOS_CAMPEAO = 0.8        # x impacto do campeão no alto elo (posições acima da média)
 PESO_DADOS_TRACO = 1.0          # x impacto do traço naquele nível no alto elo
-PASSOS_DA_BUSCA_FORA_DA_COMP = 200_000  # combinações testadas, no máximo, para achar quem mais está em campo
+PASSOS_DA_BUSCA_FORA_DA_COMP = 300_000  # combinações testadas, no máximo, para achar quem mais está em campo
+FOLGA_MAXIMA_FORA_DA_COMP = 2           # traços no painel sem campeão (emblema equipado, augment de traço)
 
 LARGURA_DO_FEIXE = 60
 PENALIDADE_REPETIDO = 1.2       # para variar: campeão (que você não tem) já usado numa sugestão anterior
@@ -267,6 +268,8 @@ class ForaDaComp:
     certos: list = field(default_factory=list)     # estão em campo em todas as combinações que fecham os traços
     pode_ser: list = field(default_factory=list)   # aparecem em alguma combinação, mas não em todas
     vagas_em_duvida: int = 0                       # quantos do tabuleiro ficaram sem nome certo
+    folga: int = 0                                 # traços que sobraram sem campeão (emblema/augment)
+    sem_combinacao: bool = False                   # nenhuma combinação fecha os traços: leitura errada?
 
 
 def fora_da_comp(provaveis, tracos_lidos, catalogo, nivel, tracos_escondidos=0):
@@ -276,6 +279,8 @@ def fora_da_comp(provaveis, tracos_lidos, catalogo, nivel, tracos_escondidos=0):
     fecham exatamente a contagem que sobra de cada traço lido. Um traço que não está no painel só
     pode ser um dos escondidos no "N+" (`tracos_escondidos`, cada um com 1 campeão). O tabuleiro
     tem até `nivel` campeões; se não fechar com todos, tenta com menos (tabuleiro incompleto).
+    Se não fechar de jeito nenhum, aceita até FOLGA_MAXIMA_FORA_DA_COMP traços sobrando: um
+    emblema equipado ou um augment de traço somam no painel sem ter campeão.
     Quem aparece em todas as combinações é certo; o resto vira "pode ser".
     Se houver combinações demais para testar, desiste e devolve vazio (melhor que chutar).
     """
@@ -292,35 +297,39 @@ def fora_da_comp(provaveis, tracos_lidos, catalogo, nivel, tracos_escondidos=0):
 
     candidatos = sorted((c for c in catalogo.campeoes.values() if c.id not in ids_provaveis and cabe(c)),
                         key=lambda c: (c.custo, c.nome))
-    for quantos in range(max(0, (nivel or 0) - len(provaveis)), 0, -1):
-        combinacoes = _combinacoes_que_fecham(candidatos, sobra, quantos, tracos_lidos, tracos_escondidos, catalogo)
-        if combinacoes is None:
-            return ForaDaComp()
-        if combinacoes:
-            break
-    else:
-        return ForaDaComp()
+    passos = [PASSOS_DA_BUSCA_FORA_DA_COMP]  # um limite só para todas as tentativas
+    for folga in range(FOLGA_MAXIMA_FORA_DA_COMP + 1):
+        for quantos in range(max(0, (nivel or 0) - len(provaveis)), 0, -1):
+            combinacoes = _combinacoes_que_fecham(candidatos, sobra, quantos, tracos_lidos, tracos_escondidos,
+                                                  catalogo, folga, passos)
+            if combinacoes is None:
+                return ForaDaComp()
+            if combinacoes:
+                return _resumir(combinacoes, quantos, folga)
+    return ForaDaComp(sem_combinacao=bool(+sobra))  # sobrou traço sem explicação: o "+" tira os zeros
 
+
+def _resumir(combinacoes, quantos, folga):
     em_todas = set.intersection(*({c.id for c in combinacao} for combinacao in combinacoes))
     certos = [c for c in combinacoes[0] if c.id in em_todas]
     pode_ser = sorted({c.id: c for combinacao in combinacoes for c in combinacao if c.id not in em_todas}.values(),
                       key=lambda c: (c.custo, c.nome))
-    return ForaDaComp(certos, pode_ser, quantos - len(certos))
+    return ForaDaComp(certos, pode_ser, quantos - len(certos), folga)
 
 
-def _combinacoes_que_fecham(candidatos, sobra, quantos, tracos_lidos, tracos_escondidos, catalogo):
-    """Todas as combinações de `quantos` candidatos que zeram a `sobra`, ou None se a busca for grande demais."""
+def _combinacoes_que_fecham(candidatos, sobra, quantos, tracos_lidos, tracos_escondidos, catalogo, folga, passos):
+    """Todas as combinações de `quantos` candidatos que deixam no máximo `folga` na `sobra`,
+    ou None se a busca passar do limite (`passos`: lista com os passos que ainda restam)."""
     restante = Counter({t: n for t, n in sobra.items() if n > 0})
     escondidos_usados = set()   # traços fora do painel: cada um só pode ter 1 campeão
-    escolhidos, achadas, passos = [], [], 0
+    escolhidos, achadas = [], []
 
     def buscar(inicio):
-        nonlocal passos
-        passos += 1
-        if passos > PASSOS_DA_BUSCA_FORA_DA_COMP:
+        passos[0] -= 1
+        if passos[0] < 0:
             return False
         if len(escolhidos) == quantos:
-            if not +restante:  # o "+" tira os zeros
+            if sum((+restante).values()) <= folga:  # o "+" tira os zeros
                 achadas.append(list(escolhidos))
             return True
         for posicao in range(inicio, len(candidatos)):
