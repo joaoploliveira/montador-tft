@@ -9,6 +9,7 @@ import numpy as np
 from PIL import Image
 
 from dados import cdragon
+from logica import augments as modulo_augments
 from logica.tradutor import Tradutor
 from visao import ocr, regioes
 from visao.captura import recortar
@@ -32,6 +33,7 @@ class LeituraDaTela:
     tracos_escondidos: int = 0                         # o "2+" no fim do painel: traços que não couberam
     itens: Counter = field(default_factory=Counter)   # item_id -> quantidade no banco
     bigorna: list = field(default_factory=list)       # bigorna aberta: [(Item, caixa da carta)], senão []
+    augments: list = field(default_factory=list)      # escolha de augment: [(Augment, x do centro do nome)], senão []
     textos_crus: dict = field(default_factory=dict)   # o que o OCR leu, para conferir
 
 
@@ -79,7 +81,7 @@ def _tracos_escondidos(recorte):
 class Leitor:
     def __init__(self, catalogo):
         self.catalogo = catalogo
-        self.tradutor = Tradutor(catalogo)
+        self.tradutor = Tradutor(catalogo, modulo_augments.carregar(catalogo))
         self.modelos = self._carregar_modelos_de_itens()
 
     def _carregar_modelos_de_itens(self):
@@ -246,6 +248,28 @@ class Leitor:
         opcoes.sort(key=lambda opcao: opcao[1][0])
         return textos, opcoes if len(opcoes) >= self.MINIMO_DE_OPCOES_NA_BIGORNA else []
 
+    MINIMO_DE_AUGMENTS = 2  # um nome só pode ser engano do OCR (ou um balão de dica)
+
+    def ler_augments(self, imagem):
+        """Opções da escolha de augment, da esquerda para a direita: [(augment, x do centro do nome)],
+        em pixels de 2560x1440. Primeiro sem ampliar (rápido); se achar só um, tenta ampliado."""
+        faixa = regioes.AUGMENT_NOMES
+        para_referencia = regioes.REFERENCIA[0] / imagem.width
+        recorte = _recorte(imagem, faixa)
+        textos, opcoes = [], []
+        for ampliar in (1, 2):
+            linhas = ocr.ler_linhas(recorte, ampliar=ampliar)
+            textos = [linha.texto for linha in linhas]
+            opcoes = []
+            for linha in linhas:
+                augment = self.tradutor.augment_do_texto(linha.texto)
+                if augment and all(augment.id != a.id for a, _ in opcoes):
+                    opcoes.append((augment, round(faixa[0] + (linha.x + linha.largura / 2) * para_referencia)))
+            if len(opcoes) != 1:
+                break
+        opcoes.sort(key=lambda opcao: opcao[1])
+        return textos, opcoes if len(opcoes) >= self.MINIMO_DE_AUGMENTS else []
+
     def ler(self, imagem):
         leitura = LeituraDaTela()
         texto_nivel, leitura.nivel, leitura.xp = self.ler_nivel(imagem)
@@ -255,8 +279,10 @@ class Leitor:
         textos_tracos, leitura.tracos, leitura.tracos_escondidos = self.ler_tracos(imagem)
         detalhes_itens, leitura.itens = self.ler_itens(imagem)
         textos_bigorna, leitura.bigorna = self.ler_bigorna(imagem)
+        textos_augments, leitura.augments = self.ler_augments(imagem)
         leitura.textos_crus = {
             "nivel": texto_nivel, "estagio": texto_estagio, "ouro": texto_ouro, "loja": textos_loja,
             "tracos": textos_tracos, "itens": detalhes_itens, "bigorna": textos_bigorna,
+            "augments": textos_augments,
         }
         return leitura

@@ -112,6 +112,8 @@ class Overlay:
                     self.desenhar_painel(dados["comp"], dados.get("dicas", []), dados.get("itens_agora", []))
                 self.bigorna = dados.get("bigorna")
                 self.mostrar_ou_esconder_bigorna()
+                if dados.get("augment"):
+                    self.desenhar_augments(dados["augment"])
         self.raiz.attributes("-topmost", True)  # o jogo às vezes "rouba" o topo ao ganhar foco
         self.raiz.after(ATUALIZAR_A_CADA_MS, self.atualizar)
 
@@ -176,6 +178,17 @@ class Overlay:
         aviso = desenho_overlay.aviso(f"PEGUE · {bigorna['motivo']}", self.pincel)
         self._colocar(aviso, round(self.px((x0 + x1) / 2) - aviso.width / 2),
                       self.px(regioes.BIGORNA_ICONE_Y0) - aviso.height - self.px(6), marca="bigorna")
+
+    def desenhar_augments(self, opcoes):
+        """Acima do nome de cada augment: 'PEGUE · motivo' (verde) no melhor e 'nota · motivo' nos outros."""
+        for opcao in opcoes:
+            if opcao["melhor"]:
+                aviso = desenho_overlay.aviso(f"PEGUE · {opcao['motivo']}", self.pincel)
+            else:
+                aviso = desenho_overlay.aviso(f"{opcao['nota']} · {opcao['motivo']}", self.pincel,
+                                              cor_da_borda=desenho_overlay.COR_AVISO_FRACO)
+            self._colocar(aviso, round(self.px(opcao["x"]) - aviso.width / 2),
+                          self.px(regioes.AUGMENT_AVISO_Y) - aviso.height)
 
     def desenhar_painel(self, comp, dicas=(), itens_agora=()):
         """Coloca a versão mais completa do painel que caiba acima do painel de traços do jogo."""

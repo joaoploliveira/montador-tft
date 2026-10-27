@@ -36,16 +36,17 @@ DICAS_NO_OVERLAY = 2
 
 
 def montar(comp, situacao, selos, catalogo, componentes, dicas=(), frases_dos_itens=(), provaveis=(),
-           bigorna=None, fora=None, fora_do_jogo=False):
+           bigorna=None, fora=None, augment=None, fora_do_jogo=False):
     """O que o overlay mostra: a comp alvo (a escolhida no app, ou a primeira da lista), os selos da loja,
     as dicas e o plano de itens (o que montar e em quem; ver logica/itens.py:frases_do_plano).
     Campeões e itens levam a `chave` do ícone, para o overlay desenhar as imagens.
     `provaveis`: ids que provavelmente estão no tabuleiro (deduzidos dos traços lidos).
     `bigorna`: com uma bigorna aberta, {"item", "motivo", "caixa"} da opção que vale pegar.
     `fora`: quem mais está em campo, fora da comp (montador.ForaDaComp).
+    `augment`: com a escolha de augment aberta, [{"nome", "nota", "motivo", "melhor", "x"}] por opção.
     `fora_do_jogo`: a leitura está ligada mas o TFT não está na tela (ex.: no cliente): o overlay some."""
     dados = {"loja": selos, "comp": None, "dicas": [d.texto for d in list(dicas)[:DICAS_NO_OVERLAY]],
-             "itens_agora": [_frase_simples(f) for f in frases_dos_itens], "bigorna": bigorna,
+             "itens_agora": [_frase_simples(f) for f in frases_dos_itens], "bigorna": bigorna, "augment": augment,
              "fora_do_jogo": fora_do_jogo}
     if comp is None:
         return dados
@@ -130,5 +131,5 @@ def ler():
     except (OSError, ValueError):
         return None
     if idade > LOJA_VALE_POR:
-        dados["loja"], dados["bigorna"] = [], None
+        dados["loja"], dados["bigorna"], dados["augment"] = [], None, None
     return dados

@@ -21,6 +21,7 @@ from interface.cartoes import (ROTULO_ORIGEM, html_da_bigorna, html_da_comp, htm
 from logica import catalogo as modulo_catalogo
 from logica import itens as modulo_itens
 from logica import dicas as modulo_dicas
+from logica import augments as modulo_augments
 from logica import manuais, meta, montador, taticas
 from logica.loja import chance_na_loja
 from visao import acompanhamento, estado_compartilhado
@@ -213,9 +214,9 @@ def leitura_da_tela(catalogo):
 
     mudou = bool(compras) or anterior is None or voltou_ao_jogo or (
         (leitura.nivel, leitura.xp, leitura.estagio, leitura.ouro, leitura.loja, leitura.itens, leitura.tracos,
-         leitura.tracos_escondidos, leitura.bigorna)
+         leitura.tracos_escondidos, leitura.bigorna, leitura.augments)
         != (anterior.nivel, anterior.xp, anterior.estagio, anterior.ouro, anterior.loja, anterior.itens,
-            anterior.tracos, anterior.tracos_escondidos, anterior.bigorna)
+            anterior.tracos, anterior.tracos_escondidos, anterior.bigorna, anterior.augments)
     )
     st.session_state.leitura = leitura
     estado_compartilhado.renovar()
@@ -444,6 +445,15 @@ def coluna_comps(situacao, catalogo, componentes):
             caixa = next(caixa for item, caixa in leitura.bigorna if item is escolha.item)
             bigorna = {"item": escolha.item.nome, "motivo": escolha.motivo, "caixa": caixa}
             st.html(html_da_bigorna(escolha))
+    augment = None  # com a escolha de augment aberta: a nota de cada opção e onde fica o nome
+    if leitura and leitura.augments and alvo:
+        posicao = {a.id: x for a, x in leitura.augments}
+        avaliadas = modulo_augments.notas([a for a, _ in leitura.augments], alvo, catalogo, leitura.estagio,
+                                          componentes)
+        augment = [{"nome": n.augment.nome, "nota": n.nota, "motivo": n.motivo, "melhor": ordem == 0,
+                    "x": posicao[n.augment.id]}
+                   for ordem, n in enumerate(avaliadas)]
+        st.caption("✨ Augments: " + " · ".join(f"**{n.augment.nome}** {n.nota} ({n.motivo})" for n in avaliadas))
     selos = []
     if leitura and any(leitura.loja):
         # a loja marca só os campeões da comp alvo (misturar várias comps mandava comprar campeão de outro time)
@@ -451,7 +461,7 @@ def coluna_comps(situacao, catalogo, componentes):
         st.html(html_da_loja(leitura.loja, selos))
     estado_compartilhado.salvar(
         estado_compartilhado.montar(alvo, situacao, selos, catalogo, componentes, dicas_agora, frases_dos_itens,
-                                    provaveis, bigorna, fora,
+                                    provaveis, bigorna, fora, augment=augment,
                                     fora_do_jogo=bool(st.session_state.get("lendo")
                                                       and not st.session_state.get("tft_na_tela", True)))
     )
