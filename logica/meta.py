@@ -32,6 +32,17 @@ def _identidade(tabuleiro, catalogo):
     return carry.campeao.id, principais
 
 
+def nome_da_comp(tabuleiro, catalogo):
+    """O nome da comp de um tabuleiro, igual ao das comps meta ('Carry — Traço + Traço'), ou None."""
+    identidade = _identidade(tabuleiro, catalogo)
+    if not identidade:
+        return None
+    id_carry, ids_tracos = identidade
+    nomes_tracos = " + ".join(catalogo.tracos[i].nome for i in ids_tracos)
+    carry = catalogo.campeoes[id_carry]
+    return f"{carry.nome} — {nomes_tracos}" if nomes_tracos else carry.nome
+
+
 def _build_do_carry(do_grupo, carry):
     """A build de 3 itens que o carry mais usou nessa comp (nomes dos itens)."""
     builds = Counter()

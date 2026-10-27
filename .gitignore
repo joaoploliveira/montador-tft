@@ -8,3 +8,4 @@ dados/overlay.tmp
 dados/icones/
 static/icones/
 dados/*.db-journal
+dados/modelo.joblib

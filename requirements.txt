@@ -6,3 +6,4 @@ numpy>=2.5
 opencv-python>=5.0
 mss>=10.2
 winocr>=0.0.15
+scikit-learn>=1.9

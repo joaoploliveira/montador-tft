@@ -20,7 +20,7 @@ from interface.cartoes import (ROTULO_ORIGEM, html_da_bigorna, html_da_comp, htm
 from logica import catalogo as modulo_catalogo
 from logica import itens as modulo_itens
 from logica import dicas as modulo_dicas
-from logica import manuais, meta, montador, taticas
+from logica import aprendizado, manuais, meta, meu_desempenho, montador, taticas
 from logica.loja import chance_na_loja
 from visao import acompanhamento, estado_compartilhado
 from visao.captura import capturar_tela
@@ -101,6 +101,17 @@ def tabelas_de_taticas(_catalogo, partidas):
         if not _catalogo.tracos[id_traco].unico
     ]).sort_values("Colocação (ajustada)")
     return {"partidas": len(tabuleiros) // 8, "por_nivel": por_nivel, "campeoes": campeoes, "tracos": tracos}
+
+
+@st.cache_resource(show_spinner=False, max_entries=2)
+def modelo_treinado(_catalogo, data_do_arquivo):  # `data_do_arquivo` só serve para renovar o cache ao treinar
+    return aprendizado.carregar(_catalogo)
+
+
+def modelo_atual(catalogo):
+    """O modelo do alto elo (aba Aprendizado), ou None se ainda não foi treinado."""
+    arquivo = aprendizado.ARQUIVO_DO_MODELO
+    return modelo_treinado(catalogo, arquivo.stat().st_mtime if arquivo.exists() else 0)
 
 
 # ---------------------------------------------------------------- estado do seu jogo
@@ -417,8 +428,10 @@ def coluna_comps(situacao, catalogo, componentes):
 
     if not comps:
         st.info("Nada para mostrar aqui ainda.")
+    modelo = modelo_atual(catalogo)
     for posicao, comp in enumerate(comps):
-        st.html(html_da_comp(comp, situacao, catalogo, componentes))
+        previsao = modelo.prever_comp(comp) if modelo else None
+        st.html(html_da_comp(comp, situacao, catalogo, componentes, previsao))
         _, em_comum = montador.combina_com_tabuleiro(comp, tracos_lidos)
         if em_comum:
             st.caption("🧩 Usa traços do seu tabuleiro: " + ", ".join(em_comum))
@@ -555,6 +568,81 @@ def aba_taticas(catalogo):
         st.caption("Poucos jogos com esse campeão segurando 3 itens.")
 
 
+def aba_aprendizado(catalogo):
+    """Etapa 1: suas partidas x alto elo. Etapa 2: o modelo que aprende com o alto elo."""
+    alto_elo = taticas.ler_tabuleiros(catalogo)
+    st.markdown("**1. Suas partidas**")
+    conexao = banco.conectar()
+    a, b = st.columns([3, 2], vertical_alignment="bottom")
+    riot_id = a.text_input("Seu Riot ID", value=banco.metadado(conexao, "riot_id", ""), placeholder="nome#tag")
+    if b.button("⬇️ Baixar minhas partidas (últimas 30)") and riot_id.strip():
+        with st.status("Baixando suas partidas...", expanded=True) as status:
+            try:
+                novas = riot.coletar_minhas_partidas(conexao, riot.ler_chave() or "", riot_id, progresso=status.write)
+                status.update(label=f"Pronto: {novas} partidas novas.", state="complete")
+            except riot.ErroRiot as erro:
+                status.update(label=str(erro), state="error")
+    conexao.close()
+
+    meus = taticas.meus_tabuleiros(catalogo)
+    if meus:
+        geral = meu_desempenho.resumo(meus, alto_elo)
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Colocação média", f"{geral.colocacao_media:.2f}", help=f"{geral.jogos} partidas ranqueadas")
+        c2.metric("Top 4", f"{geral.top4:.0%}")
+        c3.metric("Vitórias", f"{geral.vitorias:.0%}")
+        c4.metric("Nível final", f"{geral.nivel_medio:.1f}", delta_color="off",
+                  delta=f"{geral.nivel_medio - geral.nivel_medio_alto_elo:+.1f} que o alto elo")
+        st.dataframe(pd.DataFrame([
+            {"Comp": l.nome, "Jogos": l.jogos, "Sua colocação": round(l.sua_colocacao, 2),
+             "Seu top 4": f"{l.seu_top4:.0%}", "Alto elo": None if l.alto_elo_colocacao is None
+             else round(l.alto_elo_colocacao, 2), "Jogos do alto elo": l.alto_elo_jogos,
+             "Seu nível": round(l.seu_nivel, 1),
+             "Nível do alto elo": None if l.alto_elo_nivel is None else round(l.alto_elo_nivel, 1)}
+            for l in meu_desempenho.por_comp(meus, alto_elo, catalogo)
+        ]), hide_index=True, width="stretch")
+        st.caption("Comp = carry (quem tem mais itens) + 2 traços principais, como nas comps meta. "
+                   "Alto elo: colocação média ajustada de quem terminou com a mesma comp.")
+    else:
+        st.caption("Coloque seu Riot ID e baixe suas partidas para comparar com o alto elo.")
+
+    st.markdown("**2. Modelo do alto elo**")
+    st.caption("O modelo olha o tabuleiro final (campeões, estrelas, traços, nível e itens) e prevê a colocação. "
+               "É o tabuleiro FINAL: quem cai cedo tem tabuleiro fraco porque caiu. Então ele diz quanto vale "
+               "uma comp montada por completo, não a sua chance no meio da partida.")
+    if st.button("🤖 Treinar modelo (uns 15 segundos)"):
+        with st.spinner("Treinando..."):
+            try:
+                aprendizado.salvar(aprendizado.treinar(alto_elo, catalogo, progresso=lambda _texto: None))
+            except ValueError as erro:
+                st.error(str(erro))
+    modelo = modelo_atual(catalogo)
+    if not modelo:
+        st.info("Ainda não há modelo treinado para este set.")
+        return
+    a = modelo.avaliacao
+    st.markdown(f"Teste em **{a.partidas_de_teste} partidas** que o modelo não viu no treino "
+                f"(treinado com {a.partidas_de_treino}):")
+    st.dataframe(pd.DataFrame([
+        {"Medida": "Erro médio da colocação", "Modelo": f"{a.erro_do_modelo:.2f} posição",
+         "Sem modelo": f"{a.erro_sem_modelo:.2f} (chutando 4,5)"},
+        {"Medida": "Acerta se ficou no top 4", "Modelo": f"{a.acerto_top4_modelo:.0%}", "Sem modelo": "50% (chute)"},
+        {"Medida": "Ordem dos 8 jogadores da partida (0 a 1)", "Modelo": f"{a.ordem_do_modelo:.2f}",
+         "Sem modelo": f"{a.ordem_da_regra:.2f} (nota feita à mão do app)"},
+    ]), hide_index=True, width="stretch")
+    if meus:
+        previstas, _ = modelo.prever([aprendizado.vetor_do_tabuleiro(t, modelo.colunas) for t in meus])
+        real = sum(t.colocacao for t in meus) / len(meus)
+        st.markdown(f"**Seus tabuleiros finais, pelo modelo:** valiam em média **{previstas.mean():.2f}**; "
+                    f"você terminou em **{real:.2f}** (o modelo aprendeu com lobbies de alto elo; nos seus, "
+                    "os adversários costumam ser mais fracos, então parte da diferença vem daí). "
+                    + ("Você coloca melhor do que o tabuleiro sugere (bom posicionamento/economia)."
+                       if real < previstas.mean() - 0.3 else
+                       "Você coloca pior do que o tabuleiro sugere: vale olhar posicionamento e o momento de "
+                       "montar o time." if real > previstas.mean() + 0.3 else
+                       "Você coloca mais ou menos o que o tabuleiro vale."))
+
+
 TABELAS_DO_BANCO = ["campeoes", "tracos", "traco_niveis", "campeao_traco", "itens", "augments",
                     "partidas", "participacoes", "metadados"]
 
@@ -597,14 +685,17 @@ with direita:
     st.subheader("🧩 Comps")
     coluna_comps(situacao, catalogo, componentes)
     st.divider()
-    abas = st.tabs(["🧠 Táticas", "🗡️ Itens", "🎲 Loja", "📌 Cadastrar minhas comps", "📚 Banco de dados"])
+    abas = st.tabs(["🧠 Táticas", "🤖 Aprendizado", "🗡️ Itens", "🎲 Loja", "📌 Cadastrar minhas comps",
+                    "📚 Banco de dados"])
     with abas[0]:
         aba_taticas(catalogo)
     with abas[1]:
-        aba_itens(catalogo, componentes)
+        aba_aprendizado(catalogo)
     with abas[2]:
-        aba_loja(situacao, catalogo)
+        aba_itens(catalogo, componentes)
     with abas[3]:
-        aba_cadastro(catalogo)
+        aba_loja(situacao, catalogo)
     with abas[4]:
+        aba_cadastro(catalogo)
+    with abas[5]:
         aba_banco()

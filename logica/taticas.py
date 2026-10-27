@@ -88,6 +88,8 @@ class Tabuleiro:
     ultima_rodada: int | None
     unidades: list            # Unidade
     tracos: dict              # traco_id -> (quantidade, nivel_ativo ou None)
+    match_id: str = ""        # para separar partidas inteiras (treino x teste do modelo)
+    puuid: str = ""
 
     def carry(self):
         """A unidade com mais itens (empate: a mais cara)."""
@@ -101,11 +103,13 @@ _cache = {}
 
 
 def ler_tabuleiros(catalogo):
-    """Todos os tabuleiros ranqueados do set. Fica guardado até chegarem partidas novas."""
+    """Todos os tabuleiros ranqueados de alto elo do set. Fica guardado até chegarem partidas novas.
+    As suas partidas (origem "minhas") ficam de fora: os outros jogadores dos seus lobbies não são alto elo."""
     conexao = banco.conectar()
     numero_set = int(float(catalogo.numero_set))
     total = conexao.execute(
-        "SELECT COUNT(*) FROM partidas WHERE fila=? AND set_numero=?", (FILA_RANQUEADA, numero_set)
+        "SELECT COUNT(*) FROM partidas WHERE fila=? AND set_numero=? AND origem=?",
+        (FILA_RANQUEADA, numero_set, banco.ORIGEM_ALTO_ELO),
     ).fetchone()[0]
     chave = (numero_set, total, len(catalogo.campeoes))
     if chave in _cache:
@@ -114,11 +118,36 @@ def ler_tabuleiros(catalogo):
 
     linhas = conexao.execute(
         """SELECT p.* FROM participacoes p JOIN partidas m ON m.match_id = p.match_id
-           WHERE m.fila = ? AND m.set_numero = ?""",
-        (FILA_RANQUEADA, numero_set),
+           WHERE m.fila = ? AND m.set_numero = ? AND m.origem = ?""",
+        (FILA_RANQUEADA, numero_set, banco.ORIGEM_ALTO_ELO),
     ).fetchall()
     conexao.close()
 
+    tabuleiros = _montar_tabuleiros(linhas, catalogo)
+    _cache.clear()
+    _cache[chave] = tabuleiros
+    return tabuleiros
+
+
+def meus_tabuleiros(catalogo):
+    """Os seus tabuleiros finais nas ranqueadas do set (do mais recente para o mais antigo).
+    Vazio se você ainda não baixou suas partidas (aba Aprendizado)."""
+    conexao = banco.conectar()
+    puuid = banco.metadado(conexao, "meu_puuid")
+    if not puuid:
+        conexao.close()
+        return []
+    linhas = conexao.execute(
+        """SELECT p.* FROM participacoes p JOIN partidas m ON m.match_id = p.match_id
+           WHERE p.puuid = ? AND m.fila = ? AND m.set_numero = ? ORDER BY m.data DESC""",
+        (puuid, FILA_RANQUEADA, int(float(catalogo.numero_set))),
+    ).fetchall()
+    conexao.close()
+    return _montar_tabuleiros(linhas, catalogo)
+
+
+def _montar_tabuleiros(linhas, catalogo):
+    """Linhas da tabela participacoes -> Tabuleiro (só com o que existe no catálogo do set)."""
     tabuleiros = []
     for linha in linhas:
         unidades = []
@@ -135,10 +164,8 @@ def ler_tabuleiros(catalogo):
                 tracos[traco.id] = (quantidade, situacao_do_traco(traco, quantidade).nivel_ativo)
         tabuleiros.append(Tabuleiro(
             linha["colocacao"], linha["nivel"], linha["ouro_restante"], linha["ultima_rodada"], unidades, tracos,
+            linha["match_id"], linha["puuid"],
         ))
-
-    _cache.clear()
-    _cache[chave] = tabuleiros
     return tabuleiros
 
 

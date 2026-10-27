@@ -48,12 +48,25 @@ CREATE TABLE IF NOT EXISTS participacoes (
 
 TABELAS_DE_JOGO = ["campeoes", "tracos", "traco_niveis", "campeao_traco", "itens", "augments"]
 
+# de onde veio a partida: dos jogadores de alto elo (base das estatísticas) ou do seu histórico.
+# Separar importa: os outros 7 jogadores dos seus lobbies não são alto elo.
+ORIGEM_ALTO_ELO, ORIGEM_MINHAS = "alto_elo", "minhas"
+
 
 def conectar(caminho=None):
     conexao = sqlite3.connect(caminho or CAMINHO_DB)
     conexao.row_factory = sqlite3.Row
     conexao.executescript(ESQUEMA)
+    _atualizar_esquema(conexao)
     return conexao
+
+
+def _atualizar_esquema(conexao):
+    """Bancos de versões anteriores não têm a coluna `origem`: tudo que já existe é alto elo."""
+    colunas = {linha[1] for linha in conexao.execute("PRAGMA table_info(partidas)")}
+    if "origem" not in colunas:
+        conexao.execute(f"ALTER TABLE partidas ADD COLUMN origem TEXT DEFAULT '{ORIGEM_ALTO_ELO}'")
+        conexao.commit()
 
 
 def metadado(conexao, chave, padrao=None):

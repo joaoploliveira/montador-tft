@@ -23,6 +23,7 @@ CSS_GERAL = """
 .tem { font-size: .85rem; font-weight: 700; padding: 2px 10px; border-radius: 99px; background: rgba(128,128,128,.16); }
 .numeros { display: flex; gap: 14px; flex-wrap: wrap; font-size: .82rem; opacity: .85; margin: -4px 0 10px; }
 .numeros b { font-size: .95rem; }
+.numeros.previsao { color: #8fbaf5; margin-top: -6px; }
 
 .retratos { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .retrato { width: 60px; text-align: center; font-size: .68rem; line-height: 1.15; }
