@@ -162,29 +162,39 @@ def _cabecalho(imagem, desenho, comp, pincel, esquerda, direita, y):
 
 
 def _retratos(imagem, desenho, campeoes, pincel, esquerda, direita, y):
-    """Uma foto por campeão, borda na cor do custo; quem falta fica cinza; estrelas embaixo."""
+    """Uma foto por campeão, borda na cor do custo; quem falta fica cinza; estrelas embaixo.
+    Quem provavelmente está no tabuleiro (deduzido dos traços) fica colorido, mas sem estrelas."""
     px = pincel.px
     quantos = max(1, len(campeoes))
     lado_ref = min(RETRATO_MAXIMO, ((direita - esquerda) / pincel.escala - (quantos - 1) * RETRATO_ESPACO) / quantos)
     lado, espaco, borda = px(lado_ref), px(RETRATO_ESPACO), px(3)
-    estrelas_fonte = pincel.fonte(13, "simbolos")
+    estrelas_fonte = pincel.fonte(11, "simbolos")
     x = esquerda
     for campeao in campeoes:
-        tem = campeao["estrelas"] > 0
+        tem = campeao["estrelas"] > 0 or campeao.get("provavel", False)
         cor = COR_CUSTO.get(campeao["custo"], "#888888")
         desenho.rounded_rectangle((x, y, x + lado, y + lado), max(3, lado // 6), fill=cor if tem else FUNDO_CLARO,
                                   outline=cor, width=borda)
         foto = pincel.icone("campeao", campeao.get("chave"), (lado - 2 * borda) / pincel.escala, apagado=not tem)
         imagem.alpha_composite(foto, (x + borda, y + borda))
-        if tem:
-            estrelas = "★" * campeao["estrelas"]
-            largura_estrelas = estrelas_fonte.getlength(estrelas)
-            caixa = (x + (lado - largura_estrelas) / 2 - px(4), y + lado - px(13),
-                     x + (lado + largura_estrelas) / 2 + px(4), y + lado + px(4))
-            desenho.rounded_rectangle(caixa, px(6), fill=(18, 21, 28, 235))
-            desenho.text((x + lado / 2, y + lado - px(5)), estrelas, font=estrelas_fonte, fill="#f6c945", anchor="mm")
+        if campeao["estrelas"]:
+            _estrelas(imagem, campeao["estrelas"], x + lado / 2, y + lado - borda, estrelas_fonte, pincel)
         x += lado + espaco
     return y + lado + px(4)
+
+
+def _estrelas(imagem, quantas, x_meio, y_baixo, fonte, pincel):
+    """Pílula escura com as estrelas douradas, inteira dentro da foto (sem cortar a borda)."""
+    px = pincel.px
+    texto = "★" * quantas
+    largura = fonte.getlength(texto) + px(10)
+    altura = px(15)
+    pilula = Image.new("RGBA", (round(largura), altura), (0, 0, 0, 0))
+    desenho = ImageDraw.Draw(pilula)
+    desenho.rounded_rectangle((0, 0, pilula.width - 1, altura - 1), altura // 2, fill=FUNDO,
+                              outline=(246, 201, 69, 255), width=px(1))
+    desenho.text((pilula.width / 2, altura / 2), texto, font=fonte, fill=(246, 201, 69, 255), anchor="mm")
+    imagem.alpha_composite(pilula, (round(x_meio - pilula.width / 2), round(y_baixo - altura - px(2))))
 
 
 def _tracos(desenho, tracos, pincel, esquerda, direita, y):

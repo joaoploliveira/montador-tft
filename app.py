@@ -379,6 +379,9 @@ def coluna_comps(situacao, catalogo, componentes):
     if alvo:  # o alvo vai para o topo da lista
         comps = [alvo] + [c for c in comps if chave_da_comp(c) != chave_da_comp(alvo)]
 
+    # quem da comp alvo provavelmente já está no seu tabuleiro (pelos traços lidos): aparece colorido no overlay
+    provaveis = {c.id for c in montador.provaveis_no_tabuleiro(alvo.campeoes, tracos_lidos, catalogo)} if alvo else set()
+
     dicas_agora = []
     if leitura and alvo:
         plano = plano_do_alvo(alvo, da_meta)
@@ -396,10 +399,11 @@ def coluna_comps(situacao, catalogo, componentes):
     selos = []
     if leitura and any(leitura.loja):
         # a loja marca só os campeões da comp alvo (misturar várias comps mandava comprar campeão de outro time)
-        selos = estado_compartilhado.selos_da_loja(leitura.loja, [alvo] if alvo else [], situacao)
+        selos = estado_compartilhado.selos_da_loja(leitura.loja, [alvo] if alvo else [], situacao, provaveis)
         st.html(html_da_loja(leitura.loja, selos))
     estado_compartilhado.salvar(
-        estado_compartilhado.montar(alvo, situacao, selos, catalogo, componentes, dicas_agora, frases_dos_itens)
+        estado_compartilhado.montar(alvo, situacao, selos, catalogo, componentes, dicas_agora, frases_dos_itens,
+                                    provaveis)
     )
 
     if not comps:

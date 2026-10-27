@@ -16,15 +16,16 @@ SELO_COMPRE, SELO_SOBE = "COMPRE", "SOBE ★"
 LOJA_VALE_POR = 15  # segundos: sem leitura nova nesse tempo, a marcação da loja some do overlay
 
 
-def selos_da_loja(loja, comps_alvo, situacao):
+def selos_da_loja(loja, comps_alvo, situacao, provaveis=()):
     """Um selo por carta, só para campeões das comps alvo: SOBE ★ se você já tem, COMPRE se não tem.
-    Campeão que não está nas comps fica sem selo, mesmo que você tenha (não vale gastar ouro nele)."""
+    Campeão que não está nas comps fica sem selo, mesmo que você tenha (não vale gastar ouro nele).
+    `provaveis`: ids que provavelmente estão no tabuleiro (deduzidos dos traços) contam como "já tem"."""
     nas_comps = {c.id for comp in comps_alvo for c in comp.campeoes}
     selos = []
     for campeao in loja:
         if campeao is None or campeao.id not in nas_comps:
             selos.append("")
-        elif campeao.id in situacao.unidades:
+        elif campeao.id in situacao.unidades or campeao.id in provaveis:
             selos.append(SELO_SOBE)
         else:
             selos.append(SELO_COMPRE)
@@ -34,10 +35,11 @@ def selos_da_loja(loja, comps_alvo, situacao):
 DICAS_NO_OVERLAY = 2
 
 
-def montar(comp, situacao, selos, catalogo, componentes, dicas=(), frases_dos_itens=()):
+def montar(comp, situacao, selos, catalogo, componentes, dicas=(), frases_dos_itens=(), provaveis=()):
     """O que o overlay mostra: a comp alvo (a escolhida no app, ou a primeira da lista), os selos da loja,
     as dicas e o plano de itens (o que montar e em quem; ver logica/itens.py:frases_do_plano).
-    Campeões e itens levam a `chave` do ícone, para o overlay desenhar as imagens."""
+    Campeões e itens levam a `chave` do ícone, para o overlay desenhar as imagens.
+    `provaveis`: ids que provavelmente estão no tabuleiro (deduzidos dos traços lidos)."""
     dados = {"loja": selos, "comp": None, "dicas": [d.texto for d in list(dicas)[:DICAS_NO_OVERLAY]],
              "itens_agora": [_frase_simples(f) for f in frases_dos_itens]}
     if comp is None:
@@ -47,10 +49,11 @@ def montar(comp, situacao, selos, catalogo, componentes, dicas=(), frases_dos_it
     dados["comp"] = {
         "nome": comp.nome,
         "origem": comp.origem,
-        "tem": len(comp.tem),
+        "tem": len({c.id for c in comp.tem} | {c.id for c in comp.campeoes if c.id in provaveis}),
         "total": len(comp.campeoes),
         "campeoes": [
-            {"nome": c.nome, "custo": c.custo, "chave": c.chave, "estrelas": situacao.unidades.get(c.id, 0)}
+            {"nome": c.nome, "custo": c.custo, "chave": c.chave, "estrelas": situacao.unidades.get(c.id, 0),
+             "provavel": c.id in provaveis}
             for c in comp.campeoes
         ],
         # traços de verdade primeiro; os de um campeão só (sempre ativos) vão para o fim
