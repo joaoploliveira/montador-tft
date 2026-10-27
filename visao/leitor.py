@@ -29,6 +29,7 @@ class LeituraDaTela:
     ouro: int | None = None
     loja: list = field(default_factory=list)          # 5 posições: Campeao ou None (vazia/comprada)
     tracos: dict = field(default_factory=dict)        # traco_id -> quantidade (do painel)
+    tracos_escondidos: int = 0                         # o "2+" no fim do painel: traços que não couberam
     itens: Counter = field(default_factory=Counter)   # item_id -> quantidade no banco
     bigorna: list = field(default_factory=list)       # bigorna aberta: [(Item, caixa da carta)], senão []
     textos_crus: dict = field(default_factory=dict)   # o que o OCR leu, para conferir
@@ -60,6 +61,12 @@ def _numero_da_caixinha(recorte):
         if tamanho and texto.isdigit() and texto == texto[:tamanho] * REPETICOES_DO_NUMERO:
             return int(texto[:tamanho])
     return None
+
+
+def _tracos_escondidos(recorte):
+    """O "2+" que o jogo põe no fim do painel de traços quando não cabem todos. 0 se não tem."""
+    achado = re.fullmatch(r"(\d)\s*\+", ocr.ler_texto(recorte, ampliar=4).strip())
+    return int(achado.group(1)) if achado else 0
 
 
 class Leitor:
@@ -137,8 +144,10 @@ class Leitor:
 
         O nome sai quase sempre; o número às vezes some no OCR. Sem ele, usamos o '1/2'
         (traço inativo: o primeiro número é a quantidade) ou o primeiro breakpoint.
+        Com traços demais, o jogo mostra "2+" no lugar do hexágono da linha seguinte: são os escondidos.
+        Devolve (textos, tracos, quantos escondidos).
         """
-        textos, tracos, linhas_vazias = [], {}, 0
+        textos, tracos, linhas_vazias, escondidos = [], {}, 0, 0
         linhas = zip(regioes.caixas_dos_tracos(), regioes.caixas_dos_hexagonos(),
                      regioes.caixas_dos_numeros_dos_tracos())
         for caixa, hexagono, caixa_do_numero in linhas:
@@ -161,9 +170,11 @@ class Leitor:
                 linhas_vazias = 0
             else:
                 linhas_vazias += 1
-                if linhas_vazias == 2:  # acabou a lista de traços
+                if linhas_vazias == 1 and tracos:
+                    escondidos = _tracos_escondidos(_recorte(imagem, hexagono))
+                if linhas_vazias == 2 or escondidos:  # acabou a lista de traços
                     break
-        return textos, tracos
+        return textos, tracos, escondidos
 
     @staticmethod
     def _quantidade_do_traco(texto, nome, traco, ativo, numero_da_caixinha=None):
@@ -234,7 +245,7 @@ class Leitor:
         texto_estagio, leitura.estagio = self.ler_estagio(imagem)
         texto_ouro, leitura.ouro = self.ler_ouro(imagem)
         textos_loja, leitura.loja = self.ler_loja(imagem)
-        textos_tracos, leitura.tracos = self.ler_tracos(imagem)
+        textos_tracos, leitura.tracos, leitura.tracos_escondidos = self.ler_tracos(imagem)
         detalhes_itens, leitura.itens = self.ler_itens(imagem)
         textos_bigorna, leitura.bigorna = self.ler_bigorna(imagem)
         leitura.textos_crus = {

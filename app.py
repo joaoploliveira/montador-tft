@@ -198,9 +198,9 @@ def leitura_da_tela(catalogo):
     anterior = st.session_state.leitura
     mudou = bool(compras) or anterior is None or (
         (leitura.nivel, leitura.xp, leitura.estagio, leitura.ouro, leitura.loja, leitura.itens, leitura.tracos,
-         leitura.bigorna)
+         leitura.tracos_escondidos, leitura.bigorna)
         != (anterior.nivel, anterior.xp, anterior.estagio, anterior.ouro, anterior.loja, anterior.itens,
-            anterior.tracos, anterior.bigorna)
+            anterior.tracos, anterior.tracos_escondidos, anterior.bigorna)
     )
     st.session_state.leitura = leitura
     estado_compartilhado.renovar()
@@ -382,7 +382,16 @@ def coluna_comps(situacao, catalogo, componentes):
         comps = [alvo] + [c for c in comps if chave_da_comp(c) != chave_da_comp(alvo)]
 
     # quem da comp alvo provavelmente já está no seu tabuleiro (pelos traços lidos): aparece colorido no overlay
-    provaveis = {c.id for c in montador.provaveis_no_tabuleiro(alvo.campeoes, tracos_lidos, catalogo)} if alvo else set()
+    provaveis_da_comp = montador.provaveis_no_tabuleiro(alvo.campeoes, tracos_lidos, catalogo) if alvo else []
+    # e quem mais está em campo, fora da comp (pelos traços que sobram); só com a leitura ligada
+    fora = montador.ForaDaComp()
+    if leitura and alvo:
+        fora = montador.fora_da_comp(provaveis_da_comp, tracos_lidos, catalogo, leitura.nivel or situacao.nivel,
+                                     leitura.tracos_escondidos)
+    # um campeão da comp com traço escondido no "2+" só aparece aqui: conta como provável
+    da_comp = {c.id for c in alvo.campeoes} if alvo else set()
+    provaveis = {c.id for c in provaveis_da_comp} | {c.id for c in fora.certos if c.id in da_comp}
+    fora.certos = [c for c in fora.certos if c.id not in da_comp]
 
     dicas_agora = []
     if leitura and alvo:
@@ -412,7 +421,7 @@ def coluna_comps(situacao, catalogo, componentes):
         st.html(html_da_loja(leitura.loja, selos))
     estado_compartilhado.salvar(
         estado_compartilhado.montar(alvo, situacao, selos, catalogo, componentes, dicas_agora, frases_dos_itens,
-                                    provaveis, bigorna)
+                                    provaveis, bigorna, fora)
     )
 
     if not comps:
