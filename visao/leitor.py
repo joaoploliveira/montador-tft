@@ -1,4 +1,4 @@
-"""Lê o HUD do TFT a partir de um print: loja, nível, ouro, traços e itens no banco."""
+"""Lê o HUD do TFT a partir de um print: loja, nível, ouro, traços, itens no banco e o painel de dano."""
 
 import re
 from collections import Counter
@@ -19,6 +19,13 @@ BRILHO_DE_VAZIO = 18        # quadrado de item quase preto = vazio
 SATURACAO_DE_ATIVO = 25     # hexágono do traço colorido (bronze/ouro) = traço ativo; cinza ~4
 BRILHO_DE_ATIVO = 80        # a prata tem pouca cor (~40), mas é clara (~120); o cinza do inativo fica ~42
 TIPOS_NO_BANCO = ("Componente", "Completo", "Emblema", "Radiante", "Artefato")
+# painel de dano: numa partida inteira (27/10/2026), os retratos certos deram de 0,80 (Master Yi) a 0,98 e o
+# 2º colocado nunca passou de 0,60; com o painel fechado (lista de jogadores no lugar), nada passou de 0,73
+# em 16 prints. Entre RETRATO_EM_DUVIDA e RETRATO_RECONHECIDO, o retrato fica "em dúvida" (vale um print).
+TAMANHO_RETRATO = 32            # px de largura; retratos e ícones são comparados nesse tamanho
+RETRATO_RECONHECIDO = 0.77
+PIXELS_MINIMOS_DE_ESTRELA = 6   # estrelas normais têm 11+ pixels coloridos; com o painel apagado, 0
+RETRATO_EM_DUVIDA = 0.6
 
 
 @dataclass
@@ -32,6 +39,7 @@ class LeituraDaTela:
     tracos_escondidos: int = 0                         # o "2+" no fim do painel: traços que não couberam
     itens: Counter = field(default_factory=Counter)   # item_id -> quantidade no banco
     bigorna: list = field(default_factory=list)       # bigorna aberta: [(Item, caixa da carta)], senão []
+    painel_de_dano: list = field(default_factory=list)  # painel de dano aberto: [(Campeao, estrelas)], senão []
     textos_crus: dict = field(default_factory=dict)   # o que o OCR leu, para conferir
 
 
@@ -76,11 +84,24 @@ def _tracos_escondidos(recorte):
     return int(achado.group(1)) if achado else 0
 
 
+def _estrelas_do_retrato(recorte):
+    """Estrelas embaixo do retrato do painel de dano, pela cor: bronze = 1★, prata = 2★, ouro = 3★.
+    Conta os pixels de cada cor na faixa das estrelas e fica com a que mais aparece.
+    0 se quase não há cor: o jogo apaga o painel na troca de rodada e as estrelas ficam cinza."""
+    r, g, b = (canal.astype(int) for canal in np.asarray(recorte.convert("RGB")).transpose(2, 0, 1))
+    ouro = ((r > 190) & (g > 150) & (b < 100)).sum()
+    prata = ((b > 180) & (g > 170) & (r < b)).sum()
+    bronze = ((r > 130) & (g > 60) & (g < 130) & (b < 70) & (r - g > 40)).sum()
+    pixels, estrelas = max((bronze, 1), (prata, 2), (ouro, 3))
+    return estrelas if pixels >= PIXELS_MINIMOS_DE_ESTRELA else 0
+
+
 class Leitor:
     def __init__(self, catalogo):
         self.catalogo = catalogo
         self.tradutor = Tradutor(catalogo)
         self.modelos = self._carregar_modelos_de_itens()
+        self.retratos = self._carregar_retratos()
 
     def _carregar_modelos_de_itens(self):
         modelos = {}
@@ -90,6 +111,19 @@ class Leitor:
                 icone = cv2.imdecode(np.fromfile(str(caminho), dtype=np.uint8), cv2.IMREAD_COLOR)
                 modelos[item.id] = cv2.resize(icone, (TAMANHO_COMPARACAO, TAMANHO_COMPARACAO), interpolation=cv2.INTER_AREA)
         return modelos
+
+    def _carregar_retratos(self):
+        """O ícone de cada campeão, só a parte de cima (a de baixo fica tapada pelas estrelas no painel)."""
+        proporcao = regioes.RETRATO_ALTURA_COMPARADA / (regioes.RETRATO_X1 - regioes.RETRATO_X0)
+        retratos = {}
+        for campeao in self.catalogo.campeoes.values():
+            caminho = cdragon.caminho_do_icone("campeao", campeao.chave)
+            if caminho:
+                icone = cv2.imdecode(np.fromfile(str(caminho), dtype=np.uint8), cv2.IMREAD_COLOR)
+                parte_de_cima = icone[:round(icone.shape[0] * proporcao)]
+                retratos[campeao.id] = cv2.resize(parte_de_cima, (TAMANHO_RETRATO, round(TAMANHO_RETRATO * proporcao)),
+                                                  interpolation=cv2.INTER_AREA)
+        return retratos
 
     # ------------------------------------------------------------ partes do HUD
 
@@ -225,6 +259,34 @@ class Leitor:
                 detalhes.append(f"? ({melhor_nota:.2f})")
         return detalhes, itens
 
+    def ler_painel_de_dano(self, imagem):
+        """Os seus campeões que lutaram na última rodada, pelo painel "Dano causado" (se estiver aberto).
+
+        Cada retrato é comparado com os ícones dos campeões, procurando uns pixels para os lados.
+        A lista acaba no primeiro retrato que não é reconhecido. Devolve (detalhes, [(campeão, estrelas)]).
+        """
+        escala = TAMANHO_RETRATO / (regioes.RETRATO_X1 - regioes.RETRATO_X0)  # pixels de 2560x1440 -> comparação
+        detalhes, campeoes = [], []
+        for janela, faixa_das_estrelas in regioes.caixas_dos_retratos():
+            pedaco = np.asarray(_recorte(imagem, janela))[:, :, ::-1]  # PIL (RGB) -> OpenCV (BGR)
+            tamanho = (round((janela[2] - janela[0]) * escala), round((janela[3] - janela[1]) * escala))
+            pedaco = cv2.resize(pedaco, tamanho, interpolation=cv2.INTER_AREA)
+            melhor_id, melhor_nota = None, -1.0
+            for id_campeao, retrato in self.retratos.items():
+                nota = float(cv2.matchTemplate(pedaco, retrato, cv2.TM_CCOEFF_NORMED).max())
+                if nota > melhor_nota:
+                    melhor_id, melhor_nota = id_campeao, nota
+            if melhor_nota < RETRATO_RECONHECIDO:
+                if melhor_nota >= RETRATO_EM_DUVIDA and campeoes:
+                    detalhes.append(f"? ({melhor_nota:.2f}, parece {self.catalogo.campeoes[melhor_id].nome})")
+                break
+            estrelas = _estrelas_do_retrato(_recorte(imagem, faixa_das_estrelas))
+            if not estrelas:  # painel apagado (troca de rodada): as estrelas não dão para ler, melhor esperar
+                return ["painel apagado"], []
+            campeoes.append((self.catalogo.campeoes[melhor_id], estrelas))
+            detalhes.append(f"{self.catalogo.campeoes[melhor_id].nome} {estrelas}★ ({melhor_nota:.2f})")
+        return detalhes, campeoes
+
     # ------------------------------------------------------------ tudo de uma vez
 
     MINIMO_DE_OPCOES_NA_BIGORNA = 2  # um nome só pode ser engano do OCR em outra tela
@@ -255,8 +317,10 @@ class Leitor:
         textos_tracos, leitura.tracos, leitura.tracos_escondidos = self.ler_tracos(imagem)
         detalhes_itens, leitura.itens = self.ler_itens(imagem)
         textos_bigorna, leitura.bigorna = self.ler_bigorna(imagem)
+        detalhes_painel, leitura.painel_de_dano = self.ler_painel_de_dano(imagem)
         leitura.textos_crus = {
             "nivel": texto_nivel, "estagio": texto_estagio, "ouro": texto_ouro, "loja": textos_loja,
             "tracos": textos_tracos, "itens": detalhes_itens, "bigorna": textos_bigorna,
+            "painel_de_dano": detalhes_painel,
         }
         return leitura

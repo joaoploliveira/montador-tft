@@ -47,6 +47,17 @@ HEXAGONO_MEIA_ALTURA = 20
 TRACO_NUMERO_X0, TRACO_NUMERO_X1 = 148, 178  # caixinha com a quantidade ("5"), antes do nome
 TRACO_NUMERO_MEIA_ALTURA = 18
 
+# painel "Dano causado" (lado direito; abre e fecha pela setinha "<" na borda da tela): um retrato por
+# campeão que lutou na última rodada, do que mais causou dano para o que menos, com as estrelas embaixo.
+# As outras abas do painel (dano recebido, cura) listam os mesmos campeões. Medido num print de 2026-10-27 (4-3).
+RETRATO_X0, RETRATO_X1 = 2343, 2381     # retrato, sem a moldura
+RETRATO_Y0 = 448                        # topo do primeiro retrato
+RETRATO_PASSO = 65                      # distância entre um retrato e o próximo
+RETRATO_ALTURA_COMPARADA = 27           # só a parte de cima: as estrelas tapam o rodapé do retrato
+RETRATO_FOLGA = 4                       # o retrato é procurado até 4 pixels para cada lado
+RETRATO_ESTRELAS = (38, 44)             # faixa das estrelas, em pixels abaixo do topo do retrato
+RETRATO_LINHAS = 10                     # a conferir com o tabuleiro cheio (nível 9 ou 10)
+
 # banco de itens: coluna de 10 quadrados na borda esquerda
 ITEM_X0, ITEM_X1 = 18, 67           # parte de dentro do quadrado (sem a moldura)
 ITEM_Y0 = 356                       # topo do primeiro quadrado (sem a moldura)
@@ -84,6 +95,18 @@ def caixas_dos_numeros_dos_tracos():
          TRACO_NUMERO_X1, TRACO_CENTRO_Y + i * TRACO_PASSO + TRACO_NUMERO_MEIA_ALTURA)
         for i in range(TRACO_LINHAS)
     ]
+
+
+def caixas_dos_retratos():
+    """Por linha do painel de dano: (janela onde procurar o retrato, faixa das estrelas)."""
+    caixas = []
+    for i in range(RETRATO_LINHAS):
+        y = RETRATO_Y0 + i * RETRATO_PASSO
+        janela = (RETRATO_X0 - RETRATO_FOLGA, y - RETRATO_FOLGA,
+                  RETRATO_X1 + RETRATO_FOLGA, y + RETRATO_ALTURA_COMPARADA + RETRATO_FOLGA)
+        estrelas = (RETRATO_X0 - 3, y + RETRATO_ESTRELAS[0], RETRATO_X1 + 4, y + RETRATO_ESTRELAS[1])
+        caixas.append((janela, estrelas))
+    return caixas
 
 
 def em_fracao(caixa):
