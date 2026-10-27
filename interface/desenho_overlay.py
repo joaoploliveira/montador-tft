@@ -33,6 +33,7 @@ COR_SELO = {"COMPRE": ("#2fb35a", "#ffffff"), "SOBE ★": ("#e8b941", "#2a1d00")
 
 MARGEM = 14
 RETRATO_MAXIMO, RETRATO_ESPACO = 52, 7
+DIVISORIA_EM_CAMPO = 16   # espaço com um tracinho entre a comp e quem mais está em campo
 ICONE_ITEM = 26
 
 
@@ -148,7 +149,8 @@ def painel(comp, dicas, itens_agora, pincel, largura, com_tracos=True, com_itens
 
     y = _cabecalho(imagem, desenho, comp, pincel, esquerda, direita, px(MARGEM))
     retratos = []
-    y = _retratos(imagem, desenho, comp["campeoes"], pincel, esquerda, direita, y + px(8), retratos)
+    y = _retratos(imagem, desenho, comp["campeoes"], comp.get("em_campo", []), pincel, esquerda, direita, y + px(8),
+                  retratos)
     if com_tracos and comp["tracos"]:
         y = _tracos(desenho, comp["tracos"], pincel, esquerda, direita, y + px(6))
     if com_itens and (itens_agora or comp["itens"]):
@@ -189,27 +191,53 @@ def _cabecalho(imagem, desenho, comp, pincel, esquerda, direita, y):
     return y + altura_titulo
 
 
-def _retratos(imagem, desenho, campeoes, pincel, esquerda, direita, y, areas):
+def _retratos(imagem, desenho, campeoes, em_campo, pincel, esquerda, direita, y, areas):
     """Uma foto por campeão, borda na cor do custo; quem falta fica cinza; estrelas embaixo.
-    Quem provavelmente está no tabuleiro (deduzido dos traços) fica colorido, mas sem estrelas."""
+    Quem provavelmente está no tabuleiro (deduzido dos traços) fica colorido, mas sem estrelas.
+    Depois de um tracinho, `em_campo`: quem mais está no tabuleiro, fora da comp ("?" se não deu para saber)."""
     px = pincel.px
-    quantos = max(1, len(campeoes))
-    lado_ref = min(RETRATO_MAXIMO, ((direita - esquerda) / pincel.escala - (quantos - 1) * RETRATO_ESPACO) / quantos)
-    lado, espaco, borda = px(lado_ref), px(RETRATO_ESPACO), px(3)
+    quantos = max(1, len(campeoes) + len(em_campo))
+    divisoria = DIVISORIA_EM_CAMPO if em_campo else 0
+    lado_ref = min(RETRATO_MAXIMO, ((direita - esquerda) / pincel.escala - (quantos - 1) * RETRATO_ESPACO
+                                    - divisoria) / quantos)
+    lado, espaco = px(lado_ref), px(RETRATO_ESPACO)
     estrelas_fonte = pincel.fonte(11, "simbolos")
     x = esquerda
     for campeao in campeoes:
         tem = campeao["estrelas"] > 0 or campeao.get("provavel", False)
-        cor = COR_CUSTO.get(campeao["custo"], "#888888")
-        desenho.rounded_rectangle((x, y, x + lado, y + lado), max(3, lado // 6), fill=cor if tem else FUNDO_CLARO,
-                                  outline=cor, width=borda)
-        foto = pincel.icone("campeao", campeao.get("chave"), (lado - 2 * borda) / pincel.escala, apagado=not tem)
-        imagem.alpha_composite(foto, (x + borda, y + borda))
+        _retrato(imagem, desenho, campeao, tem, x, y, lado, pincel)
         if campeao["estrelas"]:
-            _estrelas(imagem, campeao["estrelas"], x + lado / 2, y + lado - borda, estrelas_fonte, pincel)
+            _estrelas(imagem, campeao["estrelas"], x + lado / 2, y + lado - px(3), estrelas_fonte, pincel)
+        areas.append((x, y, x + lado, y + lado, campeao))
+        x += lado + espaco
+    if em_campo:
+        meio = x - espaco + px(divisoria + RETRATO_ESPACO) / 2
+        desenho.line((meio, y + px(8), meio, y + lado - px(8)), fill=APAGADO, width=px(2))
+        x += px(divisoria)
+    for campeao in em_campo:
+        if campeao.get("pode_ser"):
+            _retrato_em_duvida(desenho, x, y, lado, pincel)
+        else:
+            _retrato(imagem, desenho, campeao, True, x, y, lado, pincel)
         areas.append((x, y, x + lado, y + lado, campeao))
         x += lado + espaco
     return y + lado + px(4)
+
+
+def _retrato(imagem, desenho, campeao, colorido, x, y, lado, pincel):
+    borda = pincel.px(3)
+    cor = COR_CUSTO.get(campeao["custo"], "#888888")
+    desenho.rounded_rectangle((x, y, x + lado, y + lado), max(3, lado // 6), fill=cor if colorido else FUNDO_CLARO,
+                              outline=cor, width=borda)
+    foto = pincel.icone("campeao", campeao.get("chave"), (lado - 2 * borda) / pincel.escala, apagado=not colorido)
+    imagem.alpha_composite(foto, (x + borda, y + borda))
+
+
+def _retrato_em_duvida(desenho, x, y, lado, pincel):
+    """Um campeão em campo que não deu para saber quem é: quadrado com "?" (o mouse mostra quem pode ser)."""
+    desenho.rounded_rectangle((x, y, x + lado, y + lado), max(3, lado // 6), fill=FUNDO_CLARO, outline=APAGADO,
+                              width=pincel.px(2))
+    desenho.text((x + lado / 2, y + lado / 2), "?", font=pincel.fonte(22, "negrito"), fill=TEXTO, anchor="mm")
 
 
 def _estrelas(imagem, quantas, x_meio, y_baixo, fonte, pincel):
@@ -332,21 +360,28 @@ def etiqueta_do_campeao(campeao, pincel):
     px = pincel.px
     fonte_nome, fonte = pincel.fonte(15, "negrito"), pincel.fonte(12, "normal")
     fonte_estrela = pincel.fonte(12, "simbolos")
-    if campeao["estrelas"]:
+    nome, estrelas = campeao["nome"], ""
+    if campeao.get("pode_ser"):
+        quantos = campeao.get("quantos", 1)
+        nome = "Em campo, sem nome certo" if quantos == 1 else f"{quantos} em campo, sem nome certo"
+        situacao = "pode ser: " + ", ".join(campeao["pode_ser"])
+    elif campeao.get("fora_da_comp"):
+        situacao = "provavelmente em campo · fora da comp"
+    elif campeao["estrelas"]:
         estrelas, situacao = "★" * campeao["estrelas"], "você tem"
     elif campeao.get("provavel"):
-        estrelas, situacao = "", "provavelmente no tabuleiro"
+        situacao = "provavelmente no tabuleiro"
     else:
-        estrelas, situacao = "", f"falta · custo {campeao['custo']}"
+        situacao = f"falta · custo {campeao['custo']}"
     largura_linha = fonte_estrela.getlength(estrelas) + (px(4) if estrelas else 0) + fonte.getlength(situacao)
-    largura = round(max(fonte_nome.getlength(campeao["nome"]), largura_linha)) + 2 * px(10)
+    largura = round(max(fonte_nome.getlength(nome), largura_linha)) + 2 * px(10)
     altura = px(44)
     cor = COR_CUSTO.get(campeao["custo"], "#888888")
 
     imagem = Image.new("RGBA", (largura, altura), (0, 0, 0, 0))
     desenho = ImageDraw.Draw(imagem)
     desenho.rounded_rectangle((0, 0, largura - 1, altura - 1), px(8), fill=FUNDO, outline=cor, width=px(2))
-    desenho.text((px(10), px(5)), campeao["nome"], font=fonte_nome, fill=TEXTO)
+    desenho.text((px(10), px(5)), nome, font=fonte_nome, fill=TEXTO)
     x, y = px(10), px(31)
     if estrelas:
         desenho.text((x, y), estrelas, font=fonte_estrela, fill=(246, 201, 69, 255), anchor="lm")
