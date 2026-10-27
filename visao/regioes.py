@@ -36,6 +36,12 @@ BIGORNA_ICONE_Y0 = 1176                    # o ícone do item passa um pouco da 
 # (o título "Escolha um" não serve: os balões de dica do jogo passam por cima dele)
 BIGORNA_FAIXA_DE_BAIXO = (420, 1418, 2140, 1436)
 
+# escolha de augment: 3 cartas no meio da tela. Faixa larga de propósito (ainda a calibrar com
+# um print da tela): o OCR procura os nomes em qualquer lugar dela.
+AUGMENT_NOMES = (300, 380, 2260, 1000)
+AUGMENT_AVISO_Y = 400  # altura do aviso 'PEGUE' (a calibrar). O y que o OCR devolve nessa faixa
+                       # não serve: com o fundo do jogo ele lê a linha 'torta'; só o x é confiável.
+
 # painel de traços (lado esquerdo): uma linha por traço, com número + nome + breakpoints
 TRACO_X0, TRACO_X1 = 140, 340
 TRACO_CENTRO_Y = 375               # centro da primeira linha

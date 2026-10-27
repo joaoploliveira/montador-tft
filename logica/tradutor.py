@@ -38,10 +38,11 @@ class _Tabela:
 
 
 class Tradutor:
-    def __init__(self, catalogo):
+    def __init__(self, catalogo, augments=()):
         self.campeoes = _Tabela(catalogo.campeoes.values())
         self.tracos = _Tabela(catalogo.tracos.values())
         self.itens = _Tabela(catalogo.itens.values())
+        self.augments = _Tabela(augments)
         self.nao_encontrados = Counter()
 
     def _anotar(self, achado, id_riot):
@@ -68,3 +69,6 @@ class Tradutor:
 
     def item_do_texto(self, texto):
         return self.itens.buscar_texto(texto)
+
+    def augment_do_texto(self, texto):
+        return self.augments.buscar_texto(texto)

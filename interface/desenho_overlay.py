@@ -392,6 +392,9 @@ def etiqueta_do_campeao(campeao, pincel):
 
 # ---------------------------------------------------------------- loja
 
+COR_AVISO_FRACO = "#5b6475"
+
+
 def aviso(texto, pincel, cor_da_borda="#2fb35a"):
     """Etiqueta solta com um texto curto (ex.: o motivo de pegar uma opção da bigorna)."""
     px = pincel.px
