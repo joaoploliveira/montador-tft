@@ -94,6 +94,27 @@ def salvar_conta(conexao, riot_id, puuid):
     salvar_metadado(conexao, "minhas_contas", json.dumps(contas, ensure_ascii=False))
 
 
+def nomes_das_comps(conexao):
+    """Os nomes que você deu às suas comps: [{"nome", "campeoes": [ids]}] (logica/suas_comps.py)."""
+    return json.loads(metadado(conexao, "nomes_das_comps", "[]"))
+
+
+def salvar_nome_da_comp(conexao, nome, ids_dos_campeoes):
+    """Dá `nome` à comp com esses campeões. Um nome que já existia passa a valer para esta comp."""
+    nomes = [n for n in nomes_das_comps(conexao) if n["nome"] != nome]
+    nomes.append({"nome": nome, "campeoes": sorted(ids_dos_campeoes)})
+    salvar_metadado(conexao, "nomes_das_comps", json.dumps(nomes, ensure_ascii=False))
+
+
+def datas_das_partidas(conexao, match_ids):
+    """{match_id: fim da partida em milissegundos} (é o 'data' que a API da Riot manda)."""
+    if not match_ids:
+        return {}
+    linhas = conexao.execute(f"SELECT match_id, data FROM partidas WHERE match_id IN ({','.join('?' * len(match_ids))})",
+                             list(match_ids)).fetchall()
+    return {match_id: data for match_id, data in linhas}
+
+
 def importar_partidas_antigas(conexao, caminho_antigo):
     """Traz as partidas de um banco da versão anterior (datatft.db), para não baixar de novo."""
     if not Path(caminho_antigo).exists():

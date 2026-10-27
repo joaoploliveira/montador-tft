@@ -20,6 +20,7 @@ CSS_GERAL = """
 .origem-algoritmo { background: rgba(47,122,229,.18); color: #5b9cf0; }
 .origem-meta { background: rgba(240,180,41,.18); color: #e0a520; }
 .origem-minhas { background: rgba(31,163,74,.18); color: #2fb35a; }
+.origem-suas { background: rgba(164,92,230,.18); color: #b47cf0; }
 .tem { font-size: .85rem; font-weight: 700; padding: 2px 10px; border-radius: 99px; background: rgba(128,128,128,.16); }
 .numeros { display: flex; gap: 14px; flex-wrap: wrap; font-size: .82rem; opacity: .85; margin: -4px 0 10px; }
 .numeros b { font-size: .95rem; }

@@ -20,6 +20,7 @@ from dados import banco
 from logica.tracos import situacao_do_traco
 
 FILA_RANQUEADA = 1100
+FILA_NORMAL = 1090
 COLOCACAO_NEUTRA = 4.5
 JOGOS_DE_CONFIANCA = 10       # peso da média neutra na média ajustada
 TIPOS_DE_BUILD = {"Completo"}  # itens que contam numa build (radiantes e artefatos não se montam)
@@ -129,9 +130,10 @@ def ler_tabuleiros(catalogo):
     return tabuleiros
 
 
-def meus_tabuleiros(catalogo):
-    """Os seus tabuleiros finais nas ranqueadas do set, de todas as suas contas (do mais recente
-    para o mais antigo). Vazio se você ainda não baixou suas partidas (aba Aprendizado)."""
+def meus_tabuleiros(catalogo, filas=(FILA_RANQUEADA,)):
+    """Os seus tabuleiros finais no set, de todas as suas contas (do mais recente para o mais antigo).
+    Só ranqueadas, a não ser que `filas` diga outra coisa (as suas comps contam as normais também).
+    Vazio se você ainda não baixou suas partidas (aba Aprendizado)."""
     conexao = banco.conectar()
     puuids = list(banco.minhas_contas(conexao).values())
     if not puuids:
@@ -139,9 +141,9 @@ def meus_tabuleiros(catalogo):
         return []
     linhas = conexao.execute(
         f"""SELECT p.* FROM participacoes p JOIN partidas m ON m.match_id = p.match_id
-            WHERE p.puuid IN ({",".join("?" * len(puuids))}) AND m.fila = ? AND m.set_numero = ?
-            ORDER BY m.data DESC""",
-        (*puuids, FILA_RANQUEADA, int(float(catalogo.numero_set))),
+            WHERE p.puuid IN ({",".join("?" * len(puuids))}) AND m.fila IN ({",".join("?" * len(filas))})
+            AND m.set_numero = ? ORDER BY m.data DESC""",
+        (*puuids, *filas, int(float(catalogo.numero_set))),
     ).fetchall()
     conexao.close()
     return _montar_tabuleiros(linhas, catalogo)

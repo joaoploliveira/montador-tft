@@ -43,7 +43,7 @@ def nome_da_comp(tabuleiro, catalogo):
     return f"{carry.nome} — {nomes_tracos}" if nomes_tracos else carry.nome
 
 
-def _build_do_carry(do_grupo, carry):
+def build_do_carry(do_grupo, carry):
     """A build de 3 itens que o carry mais usou nessa comp (nomes dos itens)."""
     builds = Counter()
     for tabuleiro in do_grupo:
@@ -84,7 +84,7 @@ def comps_meta(situacao, catalogo):
             "top4": desempenho.top4,
             "vitoria": desempenho.vitorias,
             "carry": carry.nome,
-            "itens_do_carry": _build_do_carry(do_grupo, carry),
+            "itens_do_carry": build_do_carry(do_grupo, carry),
             "essenciais": [catalogo.campeoes[i].nome for i in frequentes if frequencia[i] / jogos >= ESSENCIAL],
             "plano": taticas.plano_da_comp(do_grupo),
         }

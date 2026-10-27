@@ -8,8 +8,9 @@ from logica import itens as modulo_itens
 from logica import montador
 from visao import estado_compartilhado
 
-CLASSE_ORIGEM = {"Algoritmo": "origem-algoritmo", "Meta": "origem-meta", "Minhas comps": "origem-minhas"}
-ROTULO_ORIGEM = {"Algoritmo": "Para você", "Meta": "🏆 Meta", "Minhas comps": "📌 Minha"}
+CLASSE_ORIGEM = {"Algoritmo": "origem-algoritmo", "Meta": "origem-meta", "Minhas comps": "origem-minhas",
+                 "Suas comps": "origem-suas"}
+ROTULO_ORIGEM = {"Algoritmo": "Para você", "Meta": "🏆 Meta", "Minhas comps": "📌 Minha", "Suas comps": "🧠 Sua"}
 CLASSE_STATUS = {"Pode montar": "pode", "Falta 1 componente": "falta1"}
 
 
