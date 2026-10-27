@@ -12,9 +12,15 @@ comps (montadas por completo), não para dizer a chance no meio da partida.
 Teste honesto: 20% das PARTIDAS ficam de fora do treino (não 20% dos tabuleiros, senão
 os outros 7 jogadores da mesma partida "contariam" a resposta). Nessas partidas, o modelo
 e a nota feita à mão (logica/montador.py) tentam ordenar os 8 jogadores, e comparamos.
+
+Troca de um campeão (FICA/TROCA no overlay): o modelo não julga uma comp inventada, e sim
+tabuleiros reais do alto elo parecidos com a comp, com um campeão trocado por outro. O teste
+usa pares de tabuleiros das partidas separadas que diferem por um campeão só: o modelo troca
+o campeão no primeiro e diz se fica melhor; conferimos com quem colocou melhor de verdade.
 """
 
 import random
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import median
@@ -25,7 +31,6 @@ from scipy.stats import spearmanr
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
 
 from logica import montador
-from logica.tracos import contar
 
 ARQUIVO_DO_MODELO = Path(__file__).resolve().parent.parent / "dados" / "modelo.joblib"
 PARTE_DO_TESTE = 0.2
@@ -35,6 +40,9 @@ PARAMETROS = {"max_iter": 400, "learning_rate": 0.05, "max_leaf_nodes": 31, "min
               "l2_regularization": 1.0, "random_state": SEMENTE}
 EXTRAS = ["nivel", "itens", "itens_no_carry", "estrelas", "custo"]
 MARGEM_PARA_FICAR = 0.15      # o de fora da comp "fica" se a colocação prevista piorar no máximo isso
+MINIMO_DE_PARECIDOS = 8       # tabuleiros reais parecidos com a comp, no mínimo, para opinar sobre uma troca
+MAXIMO_DE_PARECIDOS = 150     # e no máximo (mais que isso só deixa a conta lenta)
+ACERTO_MINIMO_DAS_TROCAS = 0.55  # abaixo disso no teste, o FICA/TROCA aparece como experimental
 
 
 # ---------------------------------------------------------------- tabuleiro -> números
@@ -62,14 +70,30 @@ def _vetor(nomes_das_colunas, estrelas_por_campeao, quantidade_por_traco, extras
 def vetor_do_tabuleiro(tabuleiro, nomes_das_colunas):
     estrelas = {u.campeao.id: u.estrelas for u in tabuleiro.unidades}
     tracos = {id_traco: quantidade for id_traco, (quantidade, _) in tabuleiro.tracos.items()}
-    extras = {
+    return _vetor(nomes_das_colunas, estrelas, tracos, _extras_do_tabuleiro(tabuleiro))
+
+
+def _extras_do_tabuleiro(tabuleiro):
+    return {
         "nivel": tabuleiro.nivel,
         "itens": sum(len(u.itens) for u in tabuleiro.unidades),
         "itens_no_carry": max((len(u.itens) for u in tabuleiro.unidades), default=0),
         "estrelas": sum(u.estrelas for u in tabuleiro.unidades),
         "custo": sum(u.campeao.custo for u in tabuleiro.unidades),
     }
-    return _vetor(nomes_das_colunas, estrelas, tracos, extras)
+
+
+def _vetor_com_troca(tabuleiro, sai, entra, nomes_das_colunas):
+    """O mesmo tabuleiro com `entra` no lugar de `sai` (mesmas estrelas e itens; traços refeitos).
+    Os traços partem dos do tabuleiro, então emblemas e augments continuam contando."""
+    estrelas = {u.campeao.id: u.estrelas for u in tabuleiro.unidades}
+    estrelas[entra.id] = estrelas.pop(sai.id)
+    tracos = Counter({id_traco: quantidade for id_traco, (quantidade, _) in tabuleiro.tracos.items()})
+    tracos.subtract(sai.tracos)
+    tracos.update(entra.tracos)
+    extras = _extras_do_tabuleiro(tabuleiro)
+    extras["custo"] += entra.custo - sai.custo
+    return _vetor(nomes_das_colunas, estrelas, +tracos, extras)  # o "+" tira os zeros e negativos
 
 
 def vetor_da_comp(comp, modelo):
@@ -86,19 +110,6 @@ def vetor_da_comp(comp, modelo):
     return _vetor(modelo.colunas, estrelas, tracos, extras)
 
 
-def _vetor_do_time(campeoes, modelo):
-    """Como vetor_da_comp, mas para uma lista qualquer de campeões (os traços são contados de novo)."""
-    estrelas = {c.id: modelo.estrelas_tipicas.get(c.id, 1) for c in campeoes}
-    extras = {
-        "nivel": len(campeoes),
-        "itens": modelo.itens_tipicos,
-        "itens_no_carry": 3,
-        "estrelas": sum(estrelas.values()),
-        "custo": sum(c.custo for c in campeoes),
-    }
-    return _vetor(modelo.colunas, estrelas, contar(campeoes), extras)
-
-
 # ---------------------------------------------------------------- modelo
 
 @dataclass
@@ -110,6 +121,10 @@ class Avaliacao:
     acerto_top4_modelo: float    # % de tabuleiros em que acertou se ficou no top 4
     ordem_do_modelo: float       # correlação (0 a 1) entre a ordem prevista e a real, por partida
     ordem_da_regra: float        # o mesmo para a nota feita à mão (logica/montador.py)
+    # troca de um campeão: % de pares (que diferem por um campeão) em que o modelo acertou quem colocou melhor
+    acerto_das_trocas: float | None = None
+    acerto_das_trocas_pelo_custo: float | None = None  # o mesmo chutando "o campeão mais caro é melhor"
+    pares_de_trocas: int = 0
 
 
 @dataclass
@@ -132,6 +147,11 @@ class Modelo:
         colocacao, chance = self.prever(vetor_da_comp(comp, self))
         return float(colocacao[0]), float(chance[0])
 
+    @property
+    def trocas_confiaveis(self):
+        acerto = self.avaliacao.acerto_das_trocas
+        return acerto is not None and acerto >= ACERTO_MINIMO_DAS_TROCAS
+
 
 @dataclass
 class Troca:
@@ -139,39 +159,97 @@ class Troca:
     campeao: object
     fica: bool                 # True: pode ficar no time final no lugar de `no_lugar_de`
     no_lugar_de: object        # o campeão da comp que você ainda não tem e que ele substitui
-    antes: float               # colocação prevista da comp como está
-    depois: float              # colocação prevista com ele no lugar de `no_lugar_de`
+    antes: float               # colocação prevista dos tabuleiros parecidos, como foram jogados
+    depois: float              # e com ele no lugar de `no_lugar_de`
+    tabuleiros: int            # quantos tabuleiros reais parecidos entraram na conta
+    experimental: bool         # o teste das trocas não passou (ver Avaliacao.acerto_das_trocas)
 
 
-def avaliar_trocas(comp, de_fora, ja_tem, modelo):
+def avaliar_trocas(comp, de_fora, ja_tem, modelo, tabuleiros):
     """Para cada campeão de fora da comp que está em campo: vale mantê-lo no time final?
 
-    O modelo prevê a colocação da comp montada por completo e da mesma comp com o campeão de
-    fora no lugar de um que você ainda não tem (`ja_tem`: ids dos que você tem ou estão em campo).
-    Cada vaga vai para quem perde menos com ela. Se a previsão piorar até MARGEM_PARA_FICAR, ele
-    FICA (você economiza o ouro do outro); senão é rotação: segura até achar `no_lugar_de`.
-    Sem vagas (você já tem a comp toda), não há o que sugerir.
+    Pega os tabuleiros reais do alto elo (`tabuleiros`) parecidos com a comp (metade ou mais dos
+    campeões dela) que têm um campeão que você ainda não tem (`ja_tem`: ids dos que você tem ou
+    estão em campo). O modelo prevê cada um como foi jogado e com o seu campeão de fora no lugar.
+    Cada vaga vai para quem perde menos com ela. Se a previsão média piorar até MARGEM_PARA_FICAR,
+    ele FICA (você economiza o ouro do outro); senão é rotação: segure até achar `no_lugar_de`.
+    Sem tabuleiros parecidos suficientes, não opina sobre aquela troca.
     """
     vagas = [c for c in comp.campeoes if c.id not in ja_tem]
     if not de_fora or not vagas:
         return []
-    times = [list(comp.campeoes)] + [[campeao if c is vaga else c for c in comp.campeoes]
-                                     for campeao in de_fora for vaga in vagas]
-    previstas, _ = modelo.prever([_vetor_do_time(time, modelo) for time in times])
-    antes = float(previstas[0])
-    opcoes = sorted(
-        ((float(previstas[1 + i * len(vagas) + j]), campeao, vaga)
-         for i, campeao in enumerate(de_fora) for j, vaga in enumerate(vagas)),
-        key=lambda opcao: opcao[0],
-    )
+    da_comp = {c.id for c in comp.campeoes}
+    minimo_em_comum = max(3, len(da_comp) // 2)
+    parecidos = [t for t in tabuleiros if len({u.campeao.id for u in t.unidades} & da_comp) >= minimo_em_comum]
+
+    opcoes = []  # (campeão de fora, vaga, tabuleiros parecidos que têm a vaga e não têm o de fora)
+    for vaga in vagas:
+        com_a_vaga = [t for t in parecidos if any(u.campeao.id == vaga.id for u in t.unidades)]
+        for campeao in de_fora:
+            usaveis = [t for t in com_a_vaga if all(u.campeao.id != campeao.id for u in t.unidades)]
+            if len(usaveis) >= MINIMO_DE_PARECIDOS:
+                opcoes.append((campeao, vaga, usaveis[:MAXIMO_DE_PARECIDOS]))
+    if not opcoes:
+        return []
+
+    linhas = []
+    for campeao, vaga, usaveis in opcoes:
+        linhas += [vetor_do_tabuleiro(t, modelo.colunas) for t in usaveis]
+        linhas += [_vetor_com_troca(t, vaga, campeao, modelo.colunas) for t in usaveis]
+    previstas, _ = modelo.prever(np.array(linhas))
+    resultados, posicao = [], 0
+    for campeao, vaga, usaveis in opcoes:
+        quantos = len(usaveis)
+        antes = float(previstas[posicao:posicao + quantos].mean())
+        depois = float(previstas[posicao + quantos:posicao + 2 * quantos].mean())
+        posicao += 2 * quantos
+        resultados.append((depois - antes, campeao, vaga, antes, depois, quantos))
+
     trocas, usados, vagas_usadas = [], set(), set()
-    for depois, campeao, vaga in opcoes:
+    for diferenca, campeao, vaga, antes, depois, quantos in sorted(resultados, key=lambda r: r[0]):
         if campeao.id in usados or vaga.id in vagas_usadas:
             continue
         usados.add(campeao.id)
         vagas_usadas.add(vaga.id)
-        trocas.append(Troca(campeao, depois - antes <= MARGEM_PARA_FICAR, vaga, antes, depois))
+        trocas.append(Troca(campeao, diferenca <= MARGEM_PARA_FICAR, vaga, antes, depois, quantos,
+                            experimental=not modelo.trocas_confiaveis))
     return trocas
+
+
+def _pares_que_diferem_por_um(tabuleiros):
+    """Pares (tabuleiro A, campeão só de A, tabuleiro B, campeão só de B) de partidas diferentes,
+    com colocações diferentes, em que o resto dos campeões é igual."""
+    grupos = defaultdict(list)  # time sem um campeão -> [(tabuleiro, esse campeão)]
+    for tabuleiro in tabuleiros:
+        campeoes = {u.campeao.id: u.campeao for u in tabuleiro.unidades}
+        for id_campeao, campeao in campeoes.items():
+            grupos[frozenset(campeoes) - {id_campeao}].append((tabuleiro, campeao))
+    pares = []
+    for lista in grupos.values():
+        for posicao, (a, sai) in enumerate(lista):
+            for b, entra in lista[posicao + 1:]:
+                if sai.id != entra.id and a.match_id != b.match_id and a.colocacao != b.colocacao:
+                    pares.append((a, sai, b, entra))
+    return pares
+
+
+def _acerto_das_trocas(modelo_de_colocacao, teste, nomes):
+    """Nos pares do teste que diferem por um campeão: o modelo troca o campeão no tabuleiro A e diz
+    se melhora; acertou se B (que tem o outro campeão) colocou mesmo melhor. Também mede o chute
+    "o campeão mais caro é melhor", para comparar. Devolve (acerto do modelo, acerto do chute, pares)."""
+    pares = _pares_que_diferem_por_um(teste)
+    if not pares:
+        return None, None, 0
+    linhas = [vetor_do_tabuleiro(a, nomes) for a, _, _, _ in pares]
+    linhas += [_vetor_com_troca(a, sai, entra, nomes) for a, sai, _, entra in pares]
+    previstas = modelo_de_colocacao.predict(np.array(linhas))
+    melhora_prevista = previstas[len(pares):] < previstas[:len(pares)]   # colocação menor = melhor
+    melhorou_de_verdade = np.array([b.colocacao < a.colocacao for a, _, b, _ in pares])
+    mais_caro = np.array([entra.custo > sai.custo for _, sai, _, entra in pares])
+    com_custo_diferente = np.array([entra.custo != sai.custo for _, sai, _, entra in pares])
+    acerto_custo = float(np.mean(mais_caro[com_custo_diferente] == melhorou_de_verdade[com_custo_diferente])) \
+        if com_custo_diferente.any() else None
+    return float(np.mean(melhora_prevista == melhorou_de_verdade)), acerto_custo, len(pares)
 
 
 def _separar_por_partida(tabuleiros):
@@ -231,6 +309,9 @@ def treinar(tabuleiros, catalogo, progresso=print):
         ordem_do_modelo=_ordem_por_partida(teste, previsto),
         ordem_da_regra=_ordem_por_partida(teste, [_nota_da_regra(t, catalogo) for t in teste]),
     )
+    progresso("Testando a troca de um campeão...")
+    avaliacao.acerto_das_trocas, avaliacao.acerto_das_trocas_pelo_custo, avaliacao.pares_de_trocas = \
+        _acerto_das_trocas(colocacao, teste, nomes)
 
     progresso("Treinando o modelo final com todas as partidas...")
     x_tudo, y_tudo = np.vstack([x_treino, x_teste]), np.concatenate([y_treino, y_teste])

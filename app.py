@@ -432,8 +432,8 @@ def coluna_comps(situacao, catalogo, componentes):
     fora.certos = [c for c in fora.certos if c.id not in da_comp]
     # com o modelo treinado: cada um de fora da comp FICA (vale no time final) ou é rotação
     modelo = modelo_atual(catalogo) if fora.certos else None
-    trocas = aprendizado.avaliar_trocas(alvo, fora.certos, provaveis | set(situacao.unidades), modelo) \
-        if modelo else []
+    trocas = aprendizado.avaliar_trocas(alvo, fora.certos, provaveis | set(situacao.unidades), modelo,
+                                        taticas.ler_tabuleiros(catalogo)) if modelo else []
     if fora.sem_combinacao:  # nenhum time fecha os traços lidos: guarda o print para conferir a leitura
         diagnostico.guardar(st.session_state.get("ultima_tela"), "tabuleiro-sem-combinacao",
                             detalhes_do_tabuleiro(leitura, alvo, provaveis_da_comp, catalogo))
@@ -684,7 +684,16 @@ def aba_aprendizado(catalogo):
         {"Medida": "Acerta se ficou no top 4", "Modelo": f"{a.acerto_top4_modelo:.0%}", "Sem modelo": "50% (chute)"},
         {"Medida": "Ordem dos 8 jogadores da partida (0 a 1)", "Modelo": f"{a.ordem_do_modelo:.2f}",
          "Sem modelo": f"{a.ordem_da_regra:.2f} (nota feita à mão do app)"},
+        {"Medida": "Troca de um campeão: acerta qual tabuleiro colocou melhor (FICA/TROCA)",
+         "Modelo": "—" if a.acerto_das_trocas is None else f"{a.acerto_das_trocas:.0%} em {a.pares_de_trocas} pares",
+         "Sem modelo": "50% (chute)" if a.acerto_das_trocas_pelo_custo is None
+         else f"{a.acerto_das_trocas_pelo_custo:.0%} (o mais caro é melhor)"},
     ]), hide_index=True, width="stretch")
+    if a.acerto_das_trocas is None:
+        st.caption("⚠️ Treine o modelo de novo para testar a troca de um campeão (FICA/TROCA no overlay).")
+    elif not modelo.trocas_confiaveis:
+        st.caption(f"⚠️ A troca de um campeão acertou menos de {aprendizado.ACERTO_MINIMO_DAS_TROCAS:.0%} no teste: "
+                   "no overlay, FICA/TROCA aparece como experimental (com '?').")
     if meus:
         previstas, _ = modelo.prever([aprendizado.vetor_do_tabuleiro(t, modelo.colunas) for t in meus])
         real = sum(t.colocacao for t in meus) / len(meus)

@@ -79,8 +79,8 @@ PODE_SER_NO_OVERLAY = 6
 def _troca_simples(troca):
     if not troca:
         return None
-    return {"fica": troca.fica, "no_lugar_de": troca.no_lugar_de.nome,
-            "antes": round(troca.antes, 1), "depois": round(troca.depois, 1)}
+    return {"fica": troca.fica, "no_lugar_de": troca.no_lugar_de.nome, "antes": round(troca.antes, 1),
+            "depois": round(troca.depois, 1), "tabuleiros": troca.tabuleiros, "experimental": troca.experimental}
 
 
 def _em_campo(fora, trocas=()):
