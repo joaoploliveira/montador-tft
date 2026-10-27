@@ -403,6 +403,10 @@ def coluna_comps(situacao, catalogo, componentes):
     da_comp = {c.id for c in alvo.campeoes} if alvo else set()
     provaveis = {c.id for c in provaveis_da_comp} | {c.id for c in fora.certos if c.id in da_comp}
     fora.certos = [c for c in fora.certos if c.id not in da_comp]
+    # com o modelo treinado: cada um de fora da comp FICA (vale no time final) ou é rotação
+    modelo = modelo_atual(catalogo) if fora.certos else None
+    trocas = aprendizado.avaliar_trocas(alvo, fora.certos, provaveis | set(situacao.unidades), modelo) \
+        if modelo else []
 
     dicas_agora = []
     if leitura and alvo:
@@ -432,7 +436,7 @@ def coluna_comps(situacao, catalogo, componentes):
         st.html(html_da_loja(leitura.loja, selos))
     estado_compartilhado.salvar(
         estado_compartilhado.montar(alvo, situacao, selos, catalogo, componentes, dicas_agora, frases_dos_itens,
-                                    provaveis, bigorna, fora)
+                                    provaveis, bigorna, fora, trocas)
     )
 
     if not comps:

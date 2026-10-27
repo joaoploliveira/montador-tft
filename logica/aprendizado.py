@@ -25,6 +25,7 @@ from scipy.stats import spearmanr
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
 
 from logica import montador
+from logica.tracos import contar
 
 ARQUIVO_DO_MODELO = Path(__file__).resolve().parent.parent / "dados" / "modelo.joblib"
 PARTE_DO_TESTE = 0.2
@@ -33,6 +34,7 @@ MINIMO_DE_PARTIDAS = 100      # menos que isso, o teste não diz nada
 PARAMETROS = {"max_iter": 400, "learning_rate": 0.05, "max_leaf_nodes": 31, "min_samples_leaf": 20,
               "l2_regularization": 1.0, "random_state": SEMENTE}
 EXTRAS = ["nivel", "itens", "itens_no_carry", "estrelas", "custo"]
+MARGEM_PARA_FICAR = 0.15      # o de fora da comp "fica" se a colocação prevista piorar no máximo isso
 
 
 # ---------------------------------------------------------------- tabuleiro -> números
@@ -84,6 +86,19 @@ def vetor_da_comp(comp, modelo):
     return _vetor(modelo.colunas, estrelas, tracos, extras)
 
 
+def _vetor_do_time(campeoes, modelo):
+    """Como vetor_da_comp, mas para uma lista qualquer de campeões (os traços são contados de novo)."""
+    estrelas = {c.id: modelo.estrelas_tipicas.get(c.id, 1) for c in campeoes}
+    extras = {
+        "nivel": len(campeoes),
+        "itens": modelo.itens_tipicos,
+        "itens_no_carry": 3,
+        "estrelas": sum(estrelas.values()),
+        "custo": sum(c.custo for c in campeoes),
+    }
+    return _vetor(modelo.colunas, estrelas, contar(campeoes), extras)
+
+
 # ---------------------------------------------------------------- modelo
 
 @dataclass
@@ -116,6 +131,47 @@ class Modelo:
     def prever_comp(self, comp):
         colocacao, chance = self.prever(vetor_da_comp(comp, self))
         return float(colocacao[0]), float(chance[0])
+
+
+@dataclass
+class Troca:
+    """O que fazer com um campeão que está em campo mas não é da comp alvo."""
+    campeao: object
+    fica: bool                 # True: pode ficar no time final no lugar de `no_lugar_de`
+    no_lugar_de: object        # o campeão da comp que você ainda não tem e que ele substitui
+    antes: float               # colocação prevista da comp como está
+    depois: float              # colocação prevista com ele no lugar de `no_lugar_de`
+
+
+def avaliar_trocas(comp, de_fora, ja_tem, modelo):
+    """Para cada campeão de fora da comp que está em campo: vale mantê-lo no time final?
+
+    O modelo prevê a colocação da comp montada por completo e da mesma comp com o campeão de
+    fora no lugar de um que você ainda não tem (`ja_tem`: ids dos que você tem ou estão em campo).
+    Cada vaga vai para quem perde menos com ela. Se a previsão piorar até MARGEM_PARA_FICAR, ele
+    FICA (você economiza o ouro do outro); senão é rotação: segura até achar `no_lugar_de`.
+    Sem vagas (você já tem a comp toda), não há o que sugerir.
+    """
+    vagas = [c for c in comp.campeoes if c.id not in ja_tem]
+    if not de_fora or not vagas:
+        return []
+    times = [list(comp.campeoes)] + [[campeao if c is vaga else c for c in comp.campeoes]
+                                     for campeao in de_fora for vaga in vagas]
+    previstas, _ = modelo.prever([_vetor_do_time(time, modelo) for time in times])
+    antes = float(previstas[0])
+    opcoes = sorted(
+        ((float(previstas[1 + i * len(vagas) + j]), campeao, vaga)
+         for i, campeao in enumerate(de_fora) for j, vaga in enumerate(vagas)),
+        key=lambda opcao: opcao[0],
+    )
+    trocas, usados, vagas_usadas = [], set(), set()
+    for depois, campeao, vaga in opcoes:
+        if campeao.id in usados or vaga.id in vagas_usadas:
+            continue
+        usados.add(campeao.id)
+        vagas_usadas.add(vaga.id)
+        trocas.append(Troca(campeao, depois - antes <= MARGEM_PARA_FICAR, vaga, antes, depois))
+    return trocas
 
 
 def _separar_por_partida(tabuleiros):
