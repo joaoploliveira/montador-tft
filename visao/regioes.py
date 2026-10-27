@@ -34,6 +34,8 @@ TRACO_MEIA_ALTURA = 32
 TRACO_LINHAS = 10
 HEXAGONO_X0, HEXAGONO_X1 = 88, 132  # ícone do traço: colorido se ativo, cinza se inativo
 HEXAGONO_MEIA_ALTURA = 20
+TRACO_NUMERO_X0, TRACO_NUMERO_X1 = 148, 178  # caixinha com a quantidade ("5"), antes do nome
+TRACO_NUMERO_MEIA_ALTURA = 18
 
 # banco de itens: coluna de 10 quadrados na borda esquerda
 ITEM_X0, ITEM_X1 = 18, 67           # parte de dentro do quadrado (sem a moldura)
@@ -62,6 +64,14 @@ def caixas_dos_hexagonos():
     return [
         (HEXAGONO_X0, TRACO_CENTRO_Y + i * TRACO_PASSO - HEXAGONO_MEIA_ALTURA,
          HEXAGONO_X1, TRACO_CENTRO_Y + i * TRACO_PASSO + HEXAGONO_MEIA_ALTURA)
+        for i in range(TRACO_LINHAS)
+    ]
+
+
+def caixas_dos_numeros_dos_tracos():
+    return [
+        (TRACO_NUMERO_X0, TRACO_CENTRO_Y + i * TRACO_PASSO - TRACO_NUMERO_MEIA_ALTURA,
+         TRACO_NUMERO_X1, TRACO_CENTRO_Y + i * TRACO_PASSO + TRACO_NUMERO_MEIA_ALTURA)
         for i in range(TRACO_LINHAS)
     ]
 

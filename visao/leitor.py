@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 import cv2
 import numpy as np
+from PIL import Image
 
 from dados import cdragon
 from logica.tradutor import Tradutor
@@ -15,7 +16,8 @@ from visao.captura import recortar
 TAMANHO_COMPARACAO = 40     # px; ícones são comparados nesse tamanho
 SEMELHANCA_MINIMA = 0.55    # abaixo disso, o ícone do banco não é considerado reconhecido
 BRILHO_DE_VAZIO = 18        # quadrado de item quase preto = vazio
-SATURACAO_DE_ATIVO = 60     # hexágono do traço colorido (bronze/prata/ouro) = traço ativo; cinza ~10
+SATURACAO_DE_ATIVO = 25     # hexágono do traço colorido (bronze/ouro) = traço ativo; cinza ~4
+BRILHO_DE_ATIVO = 80        # a prata tem pouca cor (~40), mas é clara (~120); o cinza do inativo fica ~42
 TIPOS_NO_BANCO = ("Componente", "Completo", "Emblema", "Radiante", "Artefato")
 
 
@@ -38,6 +40,25 @@ def _recorte(imagem, caixa):
 def _numero(texto):
     achado = re.search(r"\d+", texto.replace("O", "0").replace("o", "0"))
     return int(achado.group()) if achado else None
+
+
+REPETICOES_DO_NUMERO = 3
+
+
+def _numero_da_caixinha(recorte):
+    """O número da caixinha do traço ("5"). O OCR do Windows não lê um caractere sozinho,
+    então a caixinha é repetida lado a lado ("5 5 5") e o resultado ("555") é dividido de volta."""
+    espaco = 6
+    fileira = Image.new("RGB", (recorte.width * REPETICOES_DO_NUMERO + espaco * (REPETICOES_DO_NUMERO - 1),
+                                recorte.height), recorte.getpixel((1, 1)))
+    for k in range(REPETICOES_DO_NUMERO):
+        fileira.paste(recorte, (k * (recorte.width + espaco), 0))
+    for ampliar in (2, 3):
+        texto = re.sub(r"\s", "", ocr.ler_texto(fileira, ampliar=ampliar))
+        tamanho = len(texto) // REPETICOES_DO_NUMERO
+        if tamanho and texto.isdigit() and texto == texto[:tamanho] * REPETICOES_DO_NUMERO:
+            return int(texto[:tamanho])
+    return None
 
 
 class Leitor:
@@ -117,9 +138,12 @@ class Leitor:
         (traço inativo: o primeiro número é a quantidade) ou o primeiro breakpoint.
         """
         textos, tracos, linhas_vazias = [], {}, 0
-        for caixa, hexagono in zip(regioes.caixas_dos_tracos(), regioes.caixas_dos_hexagonos()):
+        linhas = zip(regioes.caixas_dos_tracos(), regioes.caixas_dos_hexagonos(),
+                     regioes.caixas_dos_numeros_dos_tracos())
+        for caixa, hexagono, caixa_do_numero in linhas:
             recorte = _recorte(imagem, caixa)
-            ativo = np.asarray(_recorte(imagem, hexagono).convert("HSV"))[:, :, 1].mean() > SATURACAO_DE_ATIVO
+            hsv = np.asarray(_recorte(imagem, hexagono).convert("HSV"))
+            ativo = hsv[:, :, 1].mean() > SATURACAO_DE_ATIVO or hsv[:, :, 2].mean() > BRILHO_DE_ATIVO
             traco, quantidade = None, None
             for ampliar, limiar in self.TENTATIVAS_TRACO:
                 texto = ocr.ler_texto(recorte, ampliar=ampliar, limiar=limiar)
@@ -128,7 +152,8 @@ class Leitor:
                 traco = self.tradutor.traco_do_texto(nome.group()) if nome else None
                 if traco:
                     textos.append(texto)
-                    quantidade = self._quantidade_do_traco(texto, nome, traco, ativo)
+                    numero = _numero_da_caixinha(_recorte(imagem, caixa_do_numero)) if ativo else None
+                    quantidade = self._quantidade_do_traco(texto, nome, traco, ativo, numero)
                     break
             if traco:
                 tracos[traco.id] = quantidade
@@ -140,7 +165,7 @@ class Leitor:
         return textos, tracos
 
     @staticmethod
-    def _quantidade_do_traco(texto, nome, traco, ativo):
+    def _quantidade_do_traco(texto, nome, traco, ativo, numero_da_caixinha=None):
         """O número fica numa caixinha antes do nome. Depois do nome vêm os breakpoints
         ('2 > 3 > 4') ou, se o traço está inativo, 'quantidade/próximo' ('1/2')."""
         def com_uns(trecho):  # a fonte do jogo desenha o 1 parecido com um I
@@ -150,6 +175,8 @@ class Leitor:
         antes = re.search(r"(\d+)\s*$", com_uns(texto[:nome.start()]))
         numero_antes = int(antes.group(1)) if antes else None
         if ativo:
+            if numero_da_caixinha and numero_da_caixinha >= primeiro_nivel:
+                return numero_da_caixinha
             if numero_antes and numero_antes >= primeiro_nivel:
                 return numero_antes
             return primeiro_nivel  # sem o número: pelo menos o primeiro breakpoint

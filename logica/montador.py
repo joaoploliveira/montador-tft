@@ -233,6 +233,33 @@ def mais_parecida_com_tabuleiro(comps, tracos_lidos):
     return melhor
 
 
+def provaveis_no_tabuleiro(campeoes, tracos_lidos, catalogo):
+    """Dos `campeoes` (os da comp alvo), quais provavelmente estão no seu tabuleiro, pelos traços lidos.
+
+    O painel de traços do jogo conta cada campeão uma vez em cada traço dele. Então um
+    campeão só pode estar em campo se todos os traços dele aparecem lá com contagem sobrando.
+    Vai do mais certo para o menos certo (traço exclusivo lido primeiro, depois quem tem mais
+    traços) e desconta da contagem cada um que entra. É um palpite: não dá para saber as estrelas.
+    """
+    sobra = dict(tracos_lidos)
+
+    def tracos_de(campeao):
+        return [t for t in campeao.tracos if t in catalogo.tracos]
+
+    def certeza(campeao):
+        exclusivo = any(catalogo.tracos[t].unico and t in sobra for t in tracos_de(campeao))
+        return exclusivo, len(tracos_de(campeao))
+
+    provaveis = []
+    for campeao in sorted(campeoes, key=certeza, reverse=True):
+        tracos = tracos_de(campeao)
+        if tracos and all(sobra.get(t, 0) > 0 for t in tracos):
+            for t in tracos:
+                sobra[t] -= 1
+            provaveis.append(campeao)
+    return provaveis
+
+
 def copias_que_voce_tem(campeao, situacao):
     return copias_por_estrela(situacao.unidades[campeao.id]) if campeao.id in situacao.unidades else 0
 
