@@ -26,6 +26,13 @@ LOJA_NOMES = [
 # medido num print de 2026-10-27: as cartas têm 256 de largura e ficam a cada ~269,3 pixels
 CARTAS_DA_LOJA = [(x0, 1237, x0 + 256, 1432) for x0 in (598, 867, 1137, 1406, 1675)]
 
+# bigorna (escolher 1 item entre vários): aparece no lugar da loja, com o nome de cada opção no meio da carta.
+# Com menos opções as cartas continuam centradas na tela, então a carta é achada pelo centro do nome.
+BIGORNA_NOMES = (400, 1280, 2180, 1335)   # faixa com os nomes das opções
+BIGORNA_CARTA_LARGURA = 328
+BIGORNA_CARTA_Y0, BIGORNA_CARTA_Y1 = 1200, 1412
+BIGORNA_ICONE_Y0 = 1176                    # o ícone do item passa um pouco da borda de cima da carta
+
 # painel de traços (lado esquerdo): uma linha por traço, com número + nome + breakpoints
 TRACO_X0, TRACO_X1 = 140, 340
 TRACO_CENTRO_Y = 375               # centro da primeira linha

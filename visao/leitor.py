@@ -30,6 +30,7 @@ class LeituraDaTela:
     loja: list = field(default_factory=list)          # 5 posições: Campeao ou None (vazia/comprada)
     tracos: dict = field(default_factory=dict)        # traco_id -> quantidade (do painel)
     itens: Counter = field(default_factory=Counter)   # item_id -> quantidade no banco
+    bigorna: list = field(default_factory=list)       # bigorna aberta: [(Item, caixa da carta)], senão []
     textos_crus: dict = field(default_factory=dict)   # o que o OCR leu, para conferir
 
 
@@ -208,6 +209,25 @@ class Leitor:
 
     # ------------------------------------------------------------ tudo de uma vez
 
+    MINIMO_DE_OPCOES_NA_BIGORNA = 2  # um nome só pode ser engano do OCR em outra tela
+
+    def ler_bigorna(self, imagem):
+        """Opções de uma bigorna aberta, da esquerda para a direita: [(item, caixa da carta)].
+        A caixa (em pixels de 2560x1440) é a carta inteira, centrada no nome lido."""
+        faixa = regioes.BIGORNA_NOMES
+        para_referencia = regioes.REFERENCIA[0] / imagem.width  # pixels da tela -> pixels de 2560x1440
+        textos, opcoes = [], []
+        for linha in ocr.ler_linhas(_recorte(imagem, faixa)):
+            textos.append(linha.texto)
+            item = self.tradutor.item_do_texto(linha.texto)
+            if item:
+                centro = faixa[0] + (linha.x + linha.largura / 2) * para_referencia
+                meia = regioes.BIGORNA_CARTA_LARGURA / 2
+                opcoes.append((item, (round(centro - meia), regioes.BIGORNA_CARTA_Y0,
+                                      round(centro + meia), regioes.BIGORNA_CARTA_Y1)))
+        opcoes.sort(key=lambda opcao: opcao[1][0])
+        return textos, opcoes if len(opcoes) >= self.MINIMO_DE_OPCOES_NA_BIGORNA else []
+
     def ler(self, imagem):
         leitura = LeituraDaTela()
         texto_nivel, leitura.nivel, leitura.xp = self.ler_nivel(imagem)
@@ -216,8 +236,9 @@ class Leitor:
         textos_loja, leitura.loja = self.ler_loja(imagem)
         textos_tracos, leitura.tracos = self.ler_tracos(imagem)
         detalhes_itens, leitura.itens = self.ler_itens(imagem)
+        textos_bigorna, leitura.bigorna = self.ler_bigorna(imagem)
         leitura.textos_crus = {
             "nivel": texto_nivel, "estagio": texto_estagio, "ouro": texto_ouro, "loja": textos_loja,
-            "tracos": textos_tracos, "itens": detalhes_itens,
+            "tracos": textos_tracos, "itens": detalhes_itens, "bigorna": textos_bigorna,
         }
         return leitura

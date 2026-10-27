@@ -133,6 +133,13 @@ def html_das_dicas(dicas):
     return f'<div class="dicas"><b>💡 Agora</b>{linhas}</div>'
 
 
+def html_da_bigorna(escolha):
+    """Caixa '🔨 Bigorna': qual opção pegar e por quê."""
+    return (f'<div class="dicas itens-agora"><b>🔨 Bigorna</b>'
+            f'<div class="dica urgente">Pegue {escape(escolha.item.nome)}</div>'
+            f'<div class="dica">{escape(escolha.motivo)}</div></div>')
+
+
 ICONE_DA_FRASE = {"montar": "🛠️", "quase": "🟡", "util": "🎯"}
 
 

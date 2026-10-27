@@ -100,6 +100,8 @@ class Overlay:
                 self.desenhar_loja(dados.get("loja", []))
                 if dados.get("comp"):
                     self.desenhar_painel(dados["comp"], dados.get("dicas", []), dados.get("itens_agora", []))
+                if dados.get("bigorna"):
+                    self.desenhar_bigorna(dados["bigorna"])
         self.raiz.attributes("-topmost", True)  # o jogo às vezes "rouba" o topo ao ganhar foco
         self.raiz.after(ATUALIZAR_A_CADA_MS, self.atualizar)
 
@@ -130,6 +132,16 @@ class Overlay:
             if selo:
                 imagem, dx, dy = desenho_overlay.marcacao_da_loja(selo, x1 - x0, y1 - y0, FOLGA_DA_MOLDURA, self.pincel)
                 self._colocar(imagem, self.px(x0) + dx, self.px(y0) + dy)
+
+    def desenhar_bigorna(self, bigorna):
+        """Moldura na opção da bigorna que vale pegar e, acima do ícone, 'PEGUE · motivo'."""
+        x0, y0, x1, y1 = bigorna["caixa"]
+        imagem, dx, dy = desenho_overlay.marcacao_da_loja("PEGUE", x1 - x0, y1 - y0, FOLGA_DA_MOLDURA, self.pincel,
+                                                          com_etiqueta=False)
+        self._colocar(imagem, self.px(x0) + dx, self.px(y0) + dy)
+        aviso = desenho_overlay.aviso(f"PEGUE · {bigorna['motivo']}", self.pincel)
+        self._colocar(aviso, round(self.px((x0 + x1) / 2) - aviso.width / 2),
+                      self.px(regioes.BIGORNA_ICONE_Y0) - aviso.height - self.px(6))
 
     def desenhar_painel(self, comp, dicas=(), itens_agora=()):
         """Coloca a versão mais completa do painel que caiba acima do painel de traços do jogo."""
