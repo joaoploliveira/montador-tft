@@ -14,14 +14,20 @@ import json
 import sys
 import tkinter as tk
 
+import numpy as np
 from PIL import ImageTk
 
 from interface import desenho_overlay
 from visao import estado_compartilhado, regioes
-from visao.captura import monitor_do_jogo
+from visao.captura import capturar_regiao, monitor_do_jogo
 
 ATUALIZAR_A_CADA_MS = 1000
 OLHAR_O_MOUSE_A_CADA_MS = 80
+OLHAR_A_BIGORNA_A_CADA_MS = 300
+# mudança média (0 a 255) da faixa de baixo das cartas que quer dizer "a bigorna fechou":
+# entre prints da bigorna aberta fica até ~5 (mesmo com balão de dica); com a loja de volta, 18 a 26
+MUDANCA_DE_BIGORNA_FECHADA = 12
+FOLGA_DA_MOLDURA_DA_BIGORNA, ESPESSURA_DA_MOLDURA_DA_BIGORNA = 1, 4
 COR_INVISIVEL = "#010203"      # o que for desta cor fica transparente
 OPACIDADE = 0.95
 FOLGA_DA_MOLDURA = 4  # pixels (de 2560x1440) entre a carta da loja e a moldura do overlay
@@ -82,6 +88,9 @@ class Overlay:
         self.retratos = []         # (x0, y0, x1, y1, campeão) na tela, para mostrar o nome com o mouse em cima
         self.campeao_do_mouse = None
         self.foto_da_etiqueta = None
+        self.bigorna_na_tela = None    # a bigorna marcada agora (dados do app) e como estava a tela quando marcou
+        self.faixa_da_bigorna = None
+        self.bigorna_fechada = None    # a que já fechou: não volta mesmo que o app ainda não tenha percebido
 
     def px(self, valor):
         return self.pincel.px(valor)
@@ -96,11 +105,12 @@ class Overlay:
             self.ultimos_dados = chave
             self.canvas.delete("all")
             self.imagens, self.retratos, self.campeao_do_mouse = [], [], None
+            self.bigorna_na_tela = None
             if dados:
                 self.desenhar_loja(dados.get("loja", []))
                 if dados.get("comp"):
                     self.desenhar_painel(dados["comp"], dados.get("dicas", []), dados.get("itens_agora", []))
-                if dados.get("bigorna"):
+                if dados.get("bigorna") and dados["bigorna"] != self.bigorna_fechada:
                     self.desenhar_bigorna(dados["bigorna"])
         self.raiz.attributes("-topmost", True)  # o jogo às vezes "rouba" o topo ao ganhar foco
         self.raiz.after(ATUALIZAR_A_CADA_MS, self.atualizar)
@@ -121,10 +131,26 @@ class Overlay:
                                          image=self.foto_da_etiqueta, anchor="nw", tags="etiqueta")
         self.raiz.after(OLHAR_O_MOUSE_A_CADA_MS, self.olhar_o_mouse)
 
-    def _colocar(self, imagem, x, y):
+    def olhar_a_bigorna(self):
+        """Com uma bigorna marcada, confere a tela a cada 0,3 s: se ela fechou (você escolheu ou o
+        tempo acabou), apaga a moldura na hora, sem esperar o app ler a tela de novo (até ~3 s)."""
+        if self.bigorna_na_tela:
+            mudanca = np.abs(self._faixa_de_baixo_da_bigorna() - self.faixa_da_bigorna).mean()
+            if mudanca > MUDANCA_DE_BIGORNA_FECHADA:
+                self.canvas.delete("bigorna")
+                self.bigorna_fechada, self.bigorna_na_tela = self.bigorna_na_tela, None
+        self.raiz.after(OLHAR_A_BIGORNA_A_CADA_MS, self.olhar_a_bigorna)
+
+    def _faixa_de_baixo_da_bigorna(self):
+        x0, y0, x1, y1 = regioes.BIGORNA_FAIXA_DE_BAIXO
+        esquerda, topo = self.canto_do_monitor
+        imagem = capturar_regiao(esquerda + self.px(x0), topo + self.px(y0), self.px(x1 - x0), self.px(y1 - y0))
+        return np.asarray(imagem.convert("L"), dtype=float)
+
+    def _colocar(self, imagem, x, y, marca=""):
         foto = ImageTk.PhotoImage(imagem)
         self.imagens.append(foto)
-        self.canvas.create_image(x, y, image=foto, anchor="nw")
+        self.canvas.create_image(x, y, image=foto, anchor="nw", tags=marca)
 
     def desenhar_loja(self, selos):
         """Moldura por fora da carta (mesma folga nos 4 lados), para não tapar o nome que a leitura da tela usa."""
@@ -136,12 +162,14 @@ class Overlay:
     def desenhar_bigorna(self, bigorna):
         """Moldura na opção da bigorna que vale pegar e, acima do ícone, 'PEGUE · motivo'."""
         x0, y0, x1, y1 = bigorna["caixa"]
-        imagem, dx, dy = desenho_overlay.marcacao_da_loja("PEGUE", x1 - x0, y1 - y0, FOLGA_DA_MOLDURA, self.pincel,
-                                                          com_etiqueta=False)
-        self._colocar(imagem, self.px(x0) + dx, self.px(y0) + dy)
+        imagem, dx, dy = desenho_overlay.marcacao_da_loja(
+            "PEGUE", x1 - x0, y1 - y0, FOLGA_DA_MOLDURA_DA_BIGORNA, self.pincel, com_etiqueta=False,
+            espessura=ESPESSURA_DA_MOLDURA_DA_BIGORNA)
+        self._colocar(imagem, self.px(x0) + dx, self.px(y0) + dy, marca="bigorna")
         aviso = desenho_overlay.aviso(f"PEGUE · {bigorna['motivo']}", self.pincel)
         self._colocar(aviso, round(self.px((x0 + x1) / 2) - aviso.width / 2),
-                      self.px(regioes.BIGORNA_ICONE_Y0) - aviso.height - self.px(6))
+                      self.px(regioes.BIGORNA_ICONE_Y0) - aviso.height - self.px(6), marca="bigorna")
+        self.bigorna_na_tela, self.faixa_da_bigorna = bigorna, self._faixa_de_baixo_da_bigorna()
 
     def desenhar_painel(self, comp, dicas=(), itens_agora=()):
         """Coloca a versão mais completa do painel que caiba acima do painel de traços do jogo."""
@@ -177,6 +205,7 @@ def main():
     overlay = Overlay(raiz, monitor, pid_do_app)
     overlay.atualizar()
     overlay.olhar_o_mouse()
+    overlay.olhar_a_bigorna()
     raiz.mainloop()
 
 

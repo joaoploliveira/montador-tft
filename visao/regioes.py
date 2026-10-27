@@ -32,6 +32,9 @@ BIGORNA_NOMES = (400, 1280, 2180, 1335)   # faixa com os nomes das opções
 BIGORNA_CARTA_LARGURA = 328
 BIGORNA_CARTA_Y0, BIGORNA_CARTA_Y1 = 1200, 1412
 BIGORNA_ICONE_Y0 = 1176                    # o ícone do item passa um pouco da borda de cima da carta
+# faixa logo abaixo das cartas: fundo liso com a bigorna aberta, cartas da loja quando ela fecha.
+# (o título "Escolha um" não serve: os balões de dica do jogo passam por cima dele)
+BIGORNA_FAIXA_DE_BAIXO = (420, 1418, 2140, 1436)
 
 # painel de traços (lado esquerdo): uma linha por traço, com número + nome + breakpoints
 TRACO_X0, TRACO_X1 = 140, 340
