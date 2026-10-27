@@ -6,6 +6,7 @@ aquele campeão. Venda, carrossel e campeões ganhos de outro jeito não aparece
 esses você corrige à mão no app.
 """
 
+from collections import Counter
 from dataclasses import dataclass, field
 
 COPIAS_POR_ESTRELA = {1: 1, 2: 3, 3: 9}
@@ -58,6 +59,38 @@ def aplicar_compras(unidades, copias, compras):
         atual = copias.get(id_campeao) or COPIAS_POR_ESTRELA.get(unidades.get(id_campeao, 0), 0)
         copias[id_campeao] = atual + 1
         unidades[id_campeao] = estrelas_por_copias(copias[id_campeao])
+
+
+@dataclass
+class PainelDeDano:
+    """O último painel de dano completo da partida.
+
+    No planejamento, o painel mostra o combate anterior inteiro. Durante o combate ele reordena os
+    campeões ao vivo e, com uma linha no meio da animação, a leitura sai pela metade. Uma leitura que
+    é só um pedaço da guardada (menos campeões, todos já guardados com as mesmas estrelas) é ignorada.
+    Se o pedaço traz novidade (ex.: subiu para 2★ no meio do combate), ela entra no lugar dos mesmos
+    campeões e o resto continua. Quem foi vendido continua guardado até uma leitura completa, mas sai
+    do tabuleiro pelos traços (montador.quem_esta_em_campo).
+    """
+    campeoes: list = field(default_factory=list)   # [(Campeao, estrelas)]
+    estagio: int | None = None                      # estágio da última leitura (para saber quando a partida recomeça)
+
+    def atualizar(self, lido, estagio):
+        """`lido`: o painel desta leitura ([] se fechado ou apagado). `estagio`: (estágio, rodada) lido, ou None."""
+        if estagio:
+            if estagio[0] == 1 and (self.estagio or 0) > 1:  # voltou ao estágio 1: partida nova
+                self.campeoes = []
+            self.estagio = estagio[0]
+        if not lido:
+            return
+        if len(lido) >= len(self.campeoes):
+            self.campeoes = lido
+            return
+        guardados = Counter((c.id, estrelas) for c, estrelas in self.campeoes)
+        novos = Counter((c.id, estrelas) for c, estrelas in lido)
+        if novos - guardados:  # pedaço com novidade: junta com o que não foi lido agora
+            ids_lidos = {c.id for c, _ in lido}
+            self.campeoes = lido + [(c, estrelas) for c, estrelas in self.campeoes if c.id not in ids_lidos]
 
 
 def componentes_e_emblemas(itens_lidos, catalogo):

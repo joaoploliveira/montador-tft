@@ -263,6 +263,31 @@ def _tracos_de(campeao, catalogo):
     return [t for t in campeao.tracos if t in catalogo.tracos]
 
 
+def quem_esta_em_campo(comp, tracos_lidos, catalogo, nivel, tracos_escondidos=0, do_painel=()):
+    """Quem está no seu tabuleiro: (prováveis da comp alvo, ForaDaComp).
+
+    `do_painel`: campeões lidos no painel de dano, os que lutaram na última rodada (certos, mas de
+    antes do planejamento). Continua em campo quem ainda cabe nos traços lidos; quem não cabe foi
+    vendido ou voltou para o banco. Traço que não aparece no painel de traços não conta contra: pode
+    estar escondido no "N+". A dedução pelos traços só procura o resto: quem entrou depois.
+    """
+    sobra = Counter(tracos_lidos)
+    confirmados = []
+    for campeao in do_painel:
+        lidos = [t for t in _tracos_de(campeao, catalogo) if t in tracos_lidos]
+        if all(sobra[t] > 0 for t in lidos):
+            sobra.subtract(lidos)
+            confirmados.append(campeao)
+    ids_confirmados = {c.id for c in confirmados}
+    da_comp = {c.id for c in comp.campeoes}
+    provaveis = [c for c in confirmados if c.id in da_comp] + provaveis_no_tabuleiro(
+        [c for c in comp.campeoes if c.id not in ids_confirmados], sobra, catalogo)
+    ja_em_campo = provaveis + [c for c in confirmados if c.id not in da_comp]
+    fora = fora_da_comp(ja_em_campo, tracos_lidos, catalogo, nivel, tracos_escondidos)
+    fora.certos = [c for c in confirmados if c.id not in da_comp] + fora.certos
+    return provaveis, fora
+
+
 @dataclass
 class ForaDaComp:
     certos: list = field(default_factory=list)     # estão em campo em todas as combinações que fecham os traços
@@ -306,7 +331,10 @@ def fora_da_comp(provaveis, tracos_lidos, catalogo, nivel, tracos_escondidos=0):
                 return ForaDaComp()
             if combinacoes:
                 return _resumir(combinacoes, quantos, folga)
-    return ForaDaComp(sem_combinacao=bool(+sobra))  # sobrou traço sem explicação: o "+" tira os zeros
+    sobrando = sum((+sobra).values())  # o "+" tira os zeros
+    if sobrando <= FOLGA_MAXIMA_FORA_DA_COMP:  # ninguém mais cabe (ex.: tabuleiro completo): é emblema ou augment
+        return ForaDaComp(folga=sobrando)
+    return ForaDaComp(sem_combinacao=True)  # sobrou traço demais sem explicação: leitura errada?
 
 
 def _resumir(combinacoes, quantos, folga):
