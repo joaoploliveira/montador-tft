@@ -366,15 +366,19 @@ def coluna_comps(situacao, catalogo, componentes):
         st.session_state.alvo_escolhido = escolhida = None
     st.selectbox(
         "🎯 Comp alvo (é a que o overlay mostra e a que a loja marca)", [None, *candidatas], key="alvo_escolhido",
-        format_func=lambda chave: "Automática (a 1ª da lista)" if chave is None else rotulo_da_comp(candidatas[chave]),
+        format_func=lambda chave: "Automática (a que mais combina com seu tabuleiro)" if chave is None
+        else rotulo_da_comp(candidatas[chave]),
     )
-    if escolhida:  # a escolhida vai para o topo da lista
-        alvo = candidatas[escolhida]
-        comps = [alvo] + [c for c in comps if chave_da_comp(c) != escolhida]
-    else:
-        alvo = comps[0] if comps else None
 
     leitura = st.session_state.leitura if st.session_state.get("lendo") else None
+    tracos_lidos = leitura.tracos if leitura else {}
+    if escolhida:
+        alvo = candidatas[escolhida]
+    else:  # automática: a que usa os traços do seu tabuleiro; sem leitura, a 1ª da lista
+        alvo = montador.mais_parecida_com_tabuleiro(candidatas.values(), tracos_lidos) or (comps[0] if comps else None)
+    if alvo:  # o alvo vai para o topo da lista
+        comps = [alvo] + [c for c in comps if chave_da_comp(c) != chave_da_comp(alvo)]
+
     dicas_agora = []
     if leitura and alvo:
         plano = plano_do_alvo(alvo, da_meta)
@@ -386,9 +390,8 @@ def coluna_comps(situacao, catalogo, componentes):
             st.html(html_das_dicas(dicas_agora))
     selos = []
     if leitura and any(leitura.loja):
-        # com uma comp escolhida, a loja marca só os campeões dela; na automática, os das 3 primeiras
-        comps_da_loja = [alvo] if escolhida else comps[:3]
-        selos = estado_compartilhado.selos_da_loja(leitura.loja, comps_da_loja, situacao)
+        # a loja marca só os campeões da comp alvo (misturar várias comps mandava comprar campeão de outro time)
+        selos = estado_compartilhado.selos_da_loja(leitura.loja, [alvo] if alvo else [], situacao)
         st.html(html_da_loja(leitura.loja, selos))
     estado_compartilhado.salvar(
         estado_compartilhado.montar(alvo, situacao, selos, catalogo, componentes, dicas_agora)
@@ -398,10 +401,13 @@ def coluna_comps(situacao, catalogo, componentes):
         st.info("Nada para mostrar aqui ainda.")
     for posicao, comp in enumerate(comps):
         st.html(html_da_comp(comp, situacao, catalogo, componentes))
+        _, em_comum = montador.combina_com_tabuleiro(comp, tracos_lidos)
+        if em_comum:
+            st.caption("🧩 Usa traços do seu tabuleiro: " + ", ".join(em_comum))
         chave_comp = chave_da_comp(comp)
-        if chave_comp == escolhida:
-            st.caption("🎯 Esta é a sua comp alvo.")
-        else:
+        if comp is alvo:
+            st.caption("🎯 Esta é a sua comp alvo" + ("." if escolhida else " (escolhida automaticamente)."))
+        if chave_comp != escolhida:
             st.button("🎯 Jogar esta", key=f"jogar_{posicao}", on_click=escolher_alvo, args=(chave_comp,))
 
 
