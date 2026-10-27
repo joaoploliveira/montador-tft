@@ -36,12 +36,13 @@ DICAS_NO_OVERLAY = 2
 
 
 def montar(comp, situacao, selos, catalogo, componentes, dicas=(), frases_dos_itens=(), provaveis=(),
-           bigorna=None):
+           bigorna=None, fora=None):
     """O que o overlay mostra: a comp alvo (a escolhida no app, ou a primeira da lista), os selos da loja,
     as dicas e o plano de itens (o que montar e em quem; ver logica/itens.py:frases_do_plano).
     Campeões e itens levam a `chave` do ícone, para o overlay desenhar as imagens.
     `provaveis`: ids que provavelmente estão no tabuleiro (deduzidos dos traços lidos).
-    `bigorna`: com uma bigorna aberta, {"item", "motivo", "caixa"} da opção que vale pegar."""
+    `bigorna`: com uma bigorna aberta, {"item", "motivo", "caixa"} da opção que vale pegar.
+    `fora`: quem mais está em campo, fora da comp (montador.ForaDaComp)."""
     dados = {"loja": selos, "comp": None, "dicas": [d.texto for d in list(dicas)[:DICAS_NO_OVERLAY]],
              "itens_agora": [_frase_simples(f) for f in frases_dos_itens], "bigorna": bigorna}
     if comp is None:
@@ -64,8 +65,25 @@ def montar(comp, situacao, selos, catalogo, componentes, dicas=(), frases_dos_it
         "carry": carry.nome if carry else "",
         "carry_chave": carry.chave if carry else "",
         "itens": [{"nome": s.item.nome, "status": s.status, "chave": s.item.chave} for s in itens],
+        "em_campo": _em_campo(fora),
     }
     return dados
+
+
+PODE_SER_NO_OVERLAY = 6
+
+
+def _em_campo(fora):
+    """Os de fora da comp que estão em campo, e um "?" por vaga que não deu para saber quem é."""
+    if not fora:
+        return []
+    em_campo = [{"nome": c.nome, "custo": c.custo, "chave": c.chave, "estrelas": 0, "fora_da_comp": True}
+                for c in fora.certos]
+    if fora.vagas_em_duvida:
+        nomes = [c.nome for c in fora.pode_ser]
+        em_campo.append({"nome": "?", "custo": 0, "chave": "", "estrelas": 0, "quantos": fora.vagas_em_duvida,
+                         "pode_ser": nomes[:PODE_SER_NO_OVERLAY] + (["…"] if len(nomes) > PODE_SER_NO_OVERLAY else [])})
+    return em_campo
 
 
 def _frase_simples(frase):
