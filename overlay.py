@@ -24,9 +24,10 @@ from visao.captura import capturar_regiao, monitor_do_jogo
 ATUALIZAR_A_CADA_MS = 1000
 OLHAR_O_MOUSE_A_CADA_MS = 80
 OLHAR_A_BIGORNA_A_CADA_MS = 300
-# mudança média (0 a 255) da faixa de baixo das cartas que quer dizer "a bigorna fechou":
-# entre prints da bigorna aberta fica até ~5 (mesmo com balão de dica); com a loja de volta, 18 a 26
-MUDANCA_DE_BIGORNA_FECHADA = 12
+# com a bigorna aberta, a faixa logo abaixo das cartas é um fundo azul-esverdeado escuro: vermelho
+# médio 7 a 9 e verde 36 a 40. Com a loja ou outra tela, o vermelho fica entre 18 e 60.
+FUNDO_DA_BIGORNA_VERMELHO_MAXIMO = 12
+FUNDO_DA_BIGORNA_VERDE_ACIMA_DO_VERMELHO = 20
 FOLGA_DA_MOLDURA_DA_BIGORNA, ESPESSURA_DA_MOLDURA_DA_BIGORNA = 1, 4
 COR_INVISIVEL = "#010203"      # o que for desta cor fica transparente
 OPACIDADE = 0.95
@@ -88,9 +89,8 @@ class Overlay:
         self.retratos = []         # (x0, y0, x1, y1, campeão) na tela, para mostrar o nome com o mouse em cima
         self.campeao_do_mouse = None
         self.foto_da_etiqueta = None
-        self.bigorna_na_tela = None    # a bigorna marcada agora (dados do app) e como estava a tela quando marcou
-        self.faixa_da_bigorna = None
-        self.bigorna_fechada = None    # a que já fechou: não volta mesmo que o app ainda não tenha percebido
+        self.bigorna = None              # a opção que o app mandou marcar (some se a bigorna não está na tela)
+        self.bigorna_desenhada = False
 
     def px(self, valor):
         return self.pincel.px(valor)
@@ -105,13 +105,13 @@ class Overlay:
             self.ultimos_dados = chave
             self.canvas.delete("all")
             self.imagens, self.retratos, self.campeao_do_mouse = [], [], None
-            self.bigorna_na_tela = None
+            self.bigorna, self.bigorna_desenhada = None, False
             if dados and not dados.get("fora_do_jogo"):
                 self.desenhar_loja(dados.get("loja", []))
                 if dados.get("comp"):
                     self.desenhar_painel(dados["comp"], dados.get("dicas", []), dados.get("itens_agora", []))
-                if dados.get("bigorna") and dados["bigorna"] != self.bigorna_fechada:
-                    self.desenhar_bigorna(dados["bigorna"])
+                self.bigorna = dados.get("bigorna")
+                self.mostrar_ou_esconder_bigorna()
         self.raiz.attributes("-topmost", True)  # o jogo às vezes "rouba" o topo ao ganhar foco
         self.raiz.after(ATUALIZAR_A_CADA_MS, self.atualizar)
 
@@ -132,20 +132,27 @@ class Overlay:
         self.raiz.after(OLHAR_O_MOUSE_A_CADA_MS, self.olhar_o_mouse)
 
     def olhar_a_bigorna(self):
-        """Com uma bigorna marcada, confere a tela a cada 0,3 s: se ela fechou (você escolheu ou o
-        tempo acabou), apaga a moldura na hora, sem esperar o app ler a tela de novo (até ~3 s)."""
-        if self.bigorna_na_tela:
-            mudanca = np.abs(self._faixa_de_baixo_da_bigorna() - self.faixa_da_bigorna).mean()
-            if mudanca > MUDANCA_DE_BIGORNA_FECHADA:
-                self.canvas.delete("bigorna")
-                self.bigorna_fechada, self.bigorna_na_tela = self.bigorna_na_tela, None
+        """A cada 0,3 s: a moldura da bigorna só fica enquanto a bigorna está aberta na tela. Fechou
+        (você escolheu, o tempo acabou ou você fechou a janela) = some na hora, sem esperar o app."""
+        self.mostrar_ou_esconder_bigorna()
         self.raiz.after(OLHAR_A_BIGORNA_A_CADA_MS, self.olhar_a_bigorna)
 
-    def _faixa_de_baixo_da_bigorna(self):
+    def mostrar_ou_esconder_bigorna(self):
+        aberta = bool(self.bigorna) and self._bigorna_aberta_na_tela()
+        if aberta and not self.bigorna_desenhada:
+            self.desenhar_bigorna(self.bigorna)
+        elif not aberta and self.bigorna_desenhada:
+            self.canvas.delete("bigorna")
+        self.bigorna_desenhada = aberta
+
+    def _bigorna_aberta_na_tela(self):
+        """A faixa logo abaixo das cartas tem o fundo azul-esverdeado da bigorna?"""
         x0, y0, x1, y1 = regioes.BIGORNA_FAIXA_DE_BAIXO
         esquerda, topo = self.canto_do_monitor
         imagem = capturar_regiao(esquerda + self.px(x0), topo + self.px(y0), self.px(x1 - x0), self.px(y1 - y0))
-        return np.asarray(imagem.convert("L"), dtype=float)
+        vermelho, verde, _ = np.asarray(imagem, dtype=float).mean(axis=(0, 1))
+        return (vermelho <= FUNDO_DA_BIGORNA_VERMELHO_MAXIMO
+                and verde - vermelho >= FUNDO_DA_BIGORNA_VERDE_ACIMA_DO_VERMELHO)
 
     def _colocar(self, imagem, x, y, marca=""):
         foto = ImageTk.PhotoImage(imagem)
@@ -169,7 +176,6 @@ class Overlay:
         aviso = desenho_overlay.aviso(f"PEGUE · {bigorna['motivo']}", self.pincel)
         self._colocar(aviso, round(self.px((x0 + x1) / 2) - aviso.width / 2),
                       self.px(regioes.BIGORNA_ICONE_Y0) - aviso.height - self.px(6), marca="bigorna")
-        self.bigorna_na_tela, self.faixa_da_bigorna = bigorna, self._faixa_de_baixo_da_bigorna()
 
     def desenhar_painel(self, comp, dicas=(), itens_agora=()):
         """Coloca a versão mais completa do painel que caiba acima do painel de traços do jogo."""

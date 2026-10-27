@@ -63,6 +63,13 @@ def _numero_da_caixinha(recorte):
     return None
 
 
+def tracos_tapados(novos, anteriores):
+    """Os traços lidos agora parecem tapados por um balão (ex.: o mouse em cima de um item)?
+    Sinal: só sumiram traços, e todos os que sobraram têm a mesma contagem de antes. Vender um
+    campeão quase sempre muda a contagem de algum traço que fica."""
+    return len(novos) < len(anteriores) and all(anteriores.get(traco) == n for traco, n in novos.items())
+
+
 def _tracos_escondidos(recorte):
     """O "2+" que o jogo põe no fim do painel de traços quando não cabem todos. 0 se não tem."""
     achado = re.fullmatch(r"(\d)\s*\+", ocr.ler_texto(recorte, ampliar=4).strip())
