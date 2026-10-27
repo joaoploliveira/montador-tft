@@ -9,6 +9,9 @@ bordas de fora (painel e molduras) são desenhadas sem suavização.
 Medidas em pixels de 2560x1440; o Pincel converte para a resolução da tela.
 """
 
+import re
+from dataclasses import dataclass, field
+
 from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageOps
 
 from dados import cdragon
@@ -52,6 +55,13 @@ class Pincel:
                 self._fontes[chave] = ImageFont.load_default()
         return self._fontes[chave]
 
+    def simbolos_para(self, fonte):
+        """A fonte de símbolos no mesmo tamanho (em pixels) de outra fonte."""
+        chave = ("simbolos_px", fonte.size)
+        if chave not in self._fontes:
+            self._fontes[chave] = ImageFont.truetype(PASTA_FONTES + FONTES["simbolos"], fonte.size)
+        return self._fontes[chave]
+
     def icone(self, tipo, chave, tamanho, apagado=False):
         """Ícone quadrado com cantos arredondados; `apagado` = cinza e escuro (campeão que falta)."""
         lado = self.px(tamanho)
@@ -87,6 +97,16 @@ def _etiqueta(desenho, x, y, texto, fonte, fundo, cor_texto, pincel, contorno=No
     return largura, altura
 
 
+def _texto_misto(desenho, x, y, texto, fonte, cor, pincel):
+    """Escreve o texto trocando para a fonte de símbolos só no ★ (a Segoe UI não tem a estrela
+    e desenharia um quadrado). As duas fontes ficam alinhadas pela linha de base."""
+    base = y + fonte.getmetrics()[0]
+    for pedaco in re.findall(r"★+|[^★]+", texto):
+        fonte_do_pedaco = pincel.simbolos_para(fonte) if pedaco.startswith("★") else fonte
+        desenho.text((x, base), pedaco, font=fonte_do_pedaco, fill=cor, anchor="ls")
+        x += fonte_do_pedaco.getlength(pedaco)
+
+
 def _quebrar(texto, fonte, largura):
     """Quebra o texto em linhas que caibam na largura."""
     linhas, atual = [], ""
@@ -111,8 +131,15 @@ def _cortar(texto, fonte, largura):
 
 # ---------------------------------------------------------------- painel da comp alvo
 
+@dataclass
+class PainelDesenhado:
+    imagem: object
+    retratos: list = field(default_factory=list)  # (x0, y0, x1, y1, campeão) de cada foto, dentro do painel
+
+
 def painel(comp, dicas, itens_agora, pincel, largura, com_tracos=True, com_itens=True):
-    """O painel inteiro. Desenha numa imagem alta e corta na altura usada."""
+    """O painel inteiro. Desenha numa imagem alta e corta na altura usada.
+    Devolve também onde ficou cada retrato, para o overlay mostrar o nome quando o mouse passa por cima."""
     px = pincel.px
     largura = px(largura)
     imagem = Image.new("RGBA", (largura, px(900)), (0, 0, 0, 0))
@@ -120,7 +147,8 @@ def painel(comp, dicas, itens_agora, pincel, largura, com_tracos=True, com_itens
     esquerda, direita = px(MARGEM), largura - px(MARGEM)
 
     y = _cabecalho(imagem, desenho, comp, pincel, esquerda, direita, px(MARGEM))
-    y = _retratos(imagem, desenho, comp["campeoes"], pincel, esquerda, direita, y + px(8))
+    retratos = []
+    y = _retratos(imagem, desenho, comp["campeoes"], pincel, esquerda, direita, y + px(8), retratos)
     if com_tracos and comp["tracos"]:
         y = _tracos(desenho, comp["tracos"], pincel, esquerda, direita, y + px(6))
     if com_itens and (itens_agora or comp["itens"]):
@@ -138,7 +166,7 @@ def painel(comp, dicas, itens_agora, pincel, largura, com_tracos=True, com_itens
     ImageDraw.Draw(fundo).rounded_rectangle((0, 0, largura - 1, altura - 1), px(14), fill=FUNDO,
                                             outline=BORDA, width=px(2))
     fundo.alpha_composite(imagem.crop((0, 0, largura, altura)))
-    return fundo
+    return PainelDesenhado(fundo, retratos)
 
 
 def _cabecalho(imagem, desenho, comp, pincel, esquerda, direita, y):
@@ -161,7 +189,7 @@ def _cabecalho(imagem, desenho, comp, pincel, esquerda, direita, y):
     return y + altura_titulo
 
 
-def _retratos(imagem, desenho, campeoes, pincel, esquerda, direita, y):
+def _retratos(imagem, desenho, campeoes, pincel, esquerda, direita, y, areas):
     """Uma foto por campeão, borda na cor do custo; quem falta fica cinza; estrelas embaixo.
     Quem provavelmente está no tabuleiro (deduzido dos traços) fica colorido, mas sem estrelas."""
     px = pincel.px
@@ -179,6 +207,7 @@ def _retratos(imagem, desenho, campeoes, pincel, esquerda, direita, y):
         imagem.alpha_composite(foto, (x + borda, y + borda))
         if campeao["estrelas"]:
             _estrelas(imagem, campeao["estrelas"], x + lado / 2, y + lado - borda, estrelas_fonte, pincel)
+        areas.append((x, y, x + lado, y + lado, campeao))
         x += lado + espaco
     return y + lado + px(4)
 
@@ -283,9 +312,37 @@ def _dicas(desenho, dicas, pincel, esquerda, direita, y):
         y += px(4)
         desenho.ellipse((esquerda, y + px(6), esquerda + px(6), y + px(12)), fill=COR_DICA)
         for linha in _quebrar(dica, fonte, direita - esquerda - px(14)):
-            desenho.text((esquerda + px(14), y), linha, font=fonte, fill=COR_DICA)
+            _texto_misto(desenho, esquerda + px(14), y, linha, fonte, COR_DICA, pincel)
             y += altura_linha
     return y
+
+
+def etiqueta_do_campeao(campeao, pincel):
+    """A etiqueta que aparece com o mouse em cima do retrato: nome e se você tem, se está em campo ou se falta."""
+    px = pincel.px
+    fonte_nome, fonte = pincel.fonte(15, "negrito"), pincel.fonte(12, "normal")
+    fonte_estrela = pincel.fonte(12, "simbolos")
+    if campeao["estrelas"]:
+        estrelas, situacao = "★" * campeao["estrelas"], "você tem"
+    elif campeao.get("provavel"):
+        estrelas, situacao = "", "provavelmente no tabuleiro"
+    else:
+        estrelas, situacao = "", f"falta · custo {campeao['custo']}"
+    largura_linha = fonte_estrela.getlength(estrelas) + (px(4) if estrelas else 0) + fonte.getlength(situacao)
+    largura = round(max(fonte_nome.getlength(campeao["nome"]), largura_linha)) + 2 * px(10)
+    altura = px(44)
+    cor = COR_CUSTO.get(campeao["custo"], "#888888")
+
+    imagem = Image.new("RGBA", (largura, altura), (0, 0, 0, 0))
+    desenho = ImageDraw.Draw(imagem)
+    desenho.rounded_rectangle((0, 0, largura - 1, altura - 1), px(8), fill=FUNDO, outline=cor, width=px(2))
+    desenho.text((px(10), px(5)), campeao["nome"], font=fonte_nome, fill=TEXTO)
+    x, y = px(10), px(31)
+    if estrelas:
+        desenho.text((x, y), estrelas, font=fonte_estrela, fill=(246, 201, 69, 255), anchor="lm")
+        x += fonte_estrela.getlength(estrelas) + px(4)
+    desenho.text((x, y), situacao, font=fonte, fill=APAGADO, anchor="lm")
+    return imagem
 
 
 # ---------------------------------------------------------------- loja

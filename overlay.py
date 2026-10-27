@@ -9,6 +9,7 @@ ou à mão:  pythonw overlay.py
 """
 
 import ctypes
+import ctypes.wintypes
 import json
 import sys
 import tkinter as tk
@@ -20,6 +21,7 @@ from visao import estado_compartilhado, regioes
 from visao.captura import monitor_do_jogo
 
 ATUALIZAR_A_CADA_MS = 1000
+OLHAR_O_MOUSE_A_CADA_MS = 80
 COR_INVISIVEL = "#010203"      # o que for desta cor fica transparente
 OPACIDADE = 0.95
 FOLGA_DA_MOLDURA = 4  # pixels (de 2560x1440) entre a carta da loja e a moldura do overlay
@@ -43,6 +45,13 @@ def deixar_clique_passar(janela):
                            estilo | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)
 
 
+def posicao_do_mouse():
+    """Onde está o mouse na tela. Só lê a posição: a janela continua deixando o clique passar."""
+    ponto = ctypes.wintypes.POINT()
+    ctypes.windll.user32.GetCursorPos(ctypes.byref(ponto))
+    return ponto.x, ponto.y
+
+
 def processo_vivo(pid):
     """O overlay fecha sozinho quando o app (o processo que o abriu) fecha."""
     PROCESS_QUERY_LIMITED_INFORMATION, STILL_ACTIVE = 0x1000, 259
@@ -64,11 +73,15 @@ class Overlay:
     def __init__(self, raiz, monitor, pid_do_app=None):
         self.raiz = raiz
         self.pid_do_app = pid_do_app
+        self.canto_do_monitor = (monitor.get("left", 0), monitor.get("top", 0))
         self.pincel = desenho_overlay.Pincel(monitor["width"] / regioes.REFERENCIA[0])
         self.canvas = tk.Canvas(raiz, bg=COR_INVISIVEL, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         self.imagens = []         # o Tk só mostra a imagem enquanto alguém guarda uma referência a ela
         self.ultimos_dados = None  # só redesenha quando o app muda alguma coisa
+        self.retratos = []         # (x0, y0, x1, y1, campeão) na tela, para mostrar o nome com o mouse em cima
+        self.campeao_do_mouse = None
+        self.foto_da_etiqueta = None
 
     def px(self, valor):
         return self.pincel.px(valor)
@@ -82,13 +95,29 @@ class Overlay:
         if chave != self.ultimos_dados:
             self.ultimos_dados = chave
             self.canvas.delete("all")
-            self.imagens = []
+            self.imagens, self.retratos, self.campeao_do_mouse = [], [], None
             if dados:
                 self.desenhar_loja(dados.get("loja", []))
                 if dados.get("comp"):
                     self.desenhar_painel(dados["comp"], dados.get("dicas", []), dados.get("itens_agora", []))
         self.raiz.attributes("-topmost", True)  # o jogo às vezes "rouba" o topo ao ganhar foco
         self.raiz.after(ATUALIZAR_A_CADA_MS, self.atualizar)
+
+    def olhar_o_mouse(self):
+        """Com o mouse em cima de um retrato do painel, mostra o nome do campeão logo abaixo dele."""
+        x, y = posicao_do_mouse()
+        x, y = x - self.canto_do_monitor[0], y - self.canto_do_monitor[1]
+        embaixo = next((r for r in self.retratos if r[0] <= x <= r[2] and r[1] <= y <= r[3]), None)
+        if embaixo is not self.campeao_do_mouse:
+            self.campeao_do_mouse = embaixo
+            self.canvas.delete("etiqueta")
+            if embaixo:
+                x0, _, x1, y1, campeao = embaixo
+                imagem = desenho_overlay.etiqueta_do_campeao(campeao, self.pincel)
+                self.foto_da_etiqueta = ImageTk.PhotoImage(imagem)
+                self.canvas.create_image(round((x0 + x1 - imagem.width) / 2), y1 + self.px(6),
+                                         image=self.foto_da_etiqueta, anchor="nw", tags="etiqueta")
+        self.raiz.after(OLHAR_O_MOUSE_A_CADA_MS, self.olhar_o_mouse)
 
     def _colocar(self, imagem, x, y):
         foto = ImageTk.PhotoImage(imagem)
@@ -106,11 +135,13 @@ class Overlay:
         """Coloca a versão mais completa do painel que caiba acima do painel de traços do jogo."""
         itens_agora = list(itens_agora)[:FRASES_DE_ITEM_NO_OVERLAY]
         for com_tracos, com_itens, quantas_dicas in VERSOES_DO_PAINEL:
-            imagem = desenho_overlay.painel(comp, list(dicas)[:quantas_dicas], itens_agora, self.pincel,
-                                            PAINEL_LARGURA, com_tracos, com_itens)
-            if self.px(PAINEL_Y) + imagem.height <= self.px(PAINEL_Y_MAXIMO):
+            desenhado = desenho_overlay.painel(comp, list(dicas)[:quantas_dicas], itens_agora, self.pincel,
+                                               PAINEL_LARGURA, com_tracos, com_itens)
+            if self.px(PAINEL_Y) + desenhado.imagem.height <= self.px(PAINEL_Y_MAXIMO):
                 break
-        self._colocar(imagem, self.px(PAINEL_X), self.px(PAINEL_Y))
+        x, y = self.px(PAINEL_X), self.px(PAINEL_Y)
+        self._colocar(desenhado.imagem, x, y)
+        self.retratos = [(x + x0, y + y0, x + x1, y + y1, campeao) for x0, y0, x1, y1, campeao in desenhado.retratos]
 
 
 def main():
@@ -131,7 +162,9 @@ def main():
     raiz.update_idletasks()
     deixar_clique_passar(raiz)
 
-    Overlay(raiz, monitor, pid_do_app).atualizar()
+    overlay = Overlay(raiz, monitor, pid_do_app)
+    overlay.atualizar()
+    overlay.olhar_o_mouse()
     raiz.mainloop()
 
 
