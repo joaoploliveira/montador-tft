@@ -193,7 +193,8 @@ def _cabecalho(imagem, desenho, comp, pincel, esquerda, direita, y):
 
 def _retratos(imagem, desenho, campeoes, em_campo, pincel, esquerda, direita, y, areas):
     """Uma foto por campeão, borda na cor do custo; quem falta fica cinza; estrelas embaixo.
-    Quem provavelmente está no tabuleiro (deduzido dos traços) fica colorido, mas sem estrelas.
+    Quem provavelmente está no tabuleiro (deduzido dos traços) fica colorido, mas sem estrelas;
+    quem o painel de dano mostrou em campo fica colorido e com as estrelas lidas.
     Depois de um tracinho, `em_campo`: quem mais está no tabuleiro, fora da comp ("?" se não deu para saber)."""
     px = pincel.px
     quantos = max(1, len(campeoes) + len(em_campo))
@@ -219,6 +220,8 @@ def _retratos(imagem, desenho, campeoes, em_campo, pincel, esquerda, direita, y,
             _retrato_em_duvida(desenho, x, y, lado, pincel)
         else:
             _retrato(imagem, desenho, campeao, True, x, y, lado, pincel)
+            if campeao["estrelas"]:  # lido no painel de dano
+                _estrelas(imagem, campeao["estrelas"], x + lado / 2, y + lado - px(3), estrelas_fonte, pincel)
         areas.append((x, y, x + lado, y + lado, campeao))
         x += lado + espaco
     return y + lado + px(4)
@@ -365,10 +368,12 @@ def etiqueta_do_campeao(campeao, pincel):
         quantos = campeao.get("quantos", 1)
         nome = "Em campo, sem nome certo" if quantos == 1 else f"{quantos} em campo, sem nome certo"
         situacao = "pode ser: " + ", ".join(campeao["pode_ser"])
+    elif campeao.get("fora_da_comp") and campeao.get("confirmado"):
+        estrelas, situacao = "★" * campeao["estrelas"], "em campo · fora da comp"
     elif campeao.get("fora_da_comp"):
         situacao = "provavelmente em campo · fora da comp"
     elif campeao["estrelas"]:
-        estrelas, situacao = "★" * campeao["estrelas"], "você tem"
+        estrelas, situacao = "★" * campeao["estrelas"], "em campo" if campeao.get("confirmado") else "você tem"
     elif campeao.get("provavel"):
         situacao = "provavelmente no tabuleiro"
     else:

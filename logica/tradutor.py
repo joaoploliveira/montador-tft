@@ -11,6 +11,9 @@ from difflib import get_close_matches
 
 SEMELHANCA_MINIMA = 0.75  # para textos do OCR com erro de leitura
 
+# traços que o jogo escreve diferente dos dados do set (Community Dragon): nome na tela -> nome no catálogo
+APELIDOS_DE_TRACOS = {"Primitiva": "Primordial"}
+
 
 def normalizar(texto):
     """'Kog'Maw' -> 'kogmaw' ; 'Gume do Infinito' -> 'gumedoinfinito'."""
@@ -20,12 +23,15 @@ def normalizar(texto):
 class _Tabela:
     """Índice de um tipo de objeto (campeões, traços ou itens): pelo id e pelo nome."""
 
-    def __init__(self, objetos):
+    def __init__(self, objetos, apelidos=None):
         objetos = list(objetos)
         self.por_id = {o.id: o for o in objetos}
         self.por_nome = {}
         for objeto in objetos:
             self.por_nome.setdefault(normalizar(objeto.nome), objeto)
+        for apelido, nome in (apelidos or {}).items():
+            if normalizar(nome) in self.por_nome:
+                self.por_nome.setdefault(normalizar(apelido), self.por_nome[normalizar(nome)])
 
     def buscar_texto(self, texto):
         chave = normalizar(texto)
@@ -40,7 +46,7 @@ class _Tabela:
 class Tradutor:
     def __init__(self, catalogo):
         self.campeoes = _Tabela(catalogo.campeoes.values())
-        self.tracos = _Tabela(catalogo.tracos.values())
+        self.tracos = _Tabela(catalogo.tracos.values(), APELIDOS_DE_TRACOS)
         self.itens = _Tabela(catalogo.itens.values())
         self.nao_encontrados = Counter()
 

@@ -36,19 +36,21 @@ DICAS_NO_OVERLAY = 2
 
 
 def montar(comp, situacao, selos, catalogo, componentes, dicas=(), frases_dos_itens=(), provaveis=(),
-           bigorna=None, fora=None, fora_do_jogo=False):
+           bigorna=None, fora=None, estrelas_lidas=None, fora_do_jogo=False):
     """O que o overlay mostra: a comp alvo (a escolhida no app, ou a primeira da lista), os selos da loja,
     as dicas e o plano de itens (o que montar e em quem; ver logica/itens.py:frases_do_plano).
     Campeões e itens levam a `chave` do ícone, para o overlay desenhar as imagens.
     `provaveis`: ids que provavelmente estão no tabuleiro (deduzidos dos traços lidos).
     `bigorna`: com uma bigorna aberta, {"item", "motivo", "caixa"} da opção que vale pegar.
     `fora`: quem mais está em campo, fora da comp (montador.ForaDaComp).
+    `estrelas_lidas`: {id: estrelas} de quem o painel de dano mostrou em campo (confirmado, não deduzido).
     `fora_do_jogo`: a leitura está ligada mas o TFT não está na tela (ex.: no cliente): o overlay some."""
     dados = {"loja": selos, "comp": None, "dicas": [d.texto for d in list(dicas)[:DICAS_NO_OVERLAY]],
              "itens_agora": [_frase_simples(f) for f in frases_dos_itens], "bigorna": bigorna,
              "fora_do_jogo": fora_do_jogo}
     if comp is None:
         return dados
+    estrelas_lidas = estrelas_lidas or {}
     carry = next(iter(modulo_itens.carregadores(comp, 1)), None)
     itens = modulo_itens.itens_para_campeao(carry, componentes, catalogo) if carry else []
     dados["comp"] = {
@@ -57,8 +59,9 @@ def montar(comp, situacao, selos, catalogo, componentes, dicas=(), frases_dos_it
         "tem": len({c.id for c in comp.tem} | {c.id for c in comp.campeoes if c.id in provaveis}),
         "total": len(comp.campeoes),
         "campeoes": [
-            {"nome": c.nome, "custo": c.custo, "chave": c.chave, "estrelas": situacao.unidades.get(c.id, 0),
-             "provavel": c.id in provaveis}
+            {"nome": c.nome, "custo": c.custo, "chave": c.chave,
+             "estrelas": estrelas_lidas.get(c.id) or situacao.unidades.get(c.id, 0),
+             "provavel": c.id in provaveis, "confirmado": c.id in estrelas_lidas}
             for c in comp.campeoes
         ],
         # traços de verdade primeiro; os de um campeão só (sempre ativos) vão para o fim
@@ -67,7 +70,7 @@ def montar(comp, situacao, selos, catalogo, componentes, dicas=(), frases_dos_it
         "carry": carry.nome if carry else "",
         "carry_chave": carry.chave if carry else "",
         "itens": [{"nome": s.item.nome, "status": s.status, "chave": s.item.chave} for s in itens],
-        "em_campo": _em_campo(fora),
+        "em_campo": _em_campo(fora, estrelas_lidas),
     }
     return dados
 
@@ -75,11 +78,12 @@ def montar(comp, situacao, selos, catalogo, componentes, dicas=(), frases_dos_it
 PODE_SER_NO_OVERLAY = 6
 
 
-def _em_campo(fora):
+def _em_campo(fora, estrelas_lidas):
     """Os de fora da comp que estão em campo, e um "?" por vaga que não deu para saber quem é."""
     if not fora:
         return []
-    em_campo = [{"nome": c.nome, "custo": c.custo, "chave": c.chave, "estrelas": 0, "fora_da_comp": True}
+    em_campo = [{"nome": c.nome, "custo": c.custo, "chave": c.chave, "estrelas": estrelas_lidas.get(c.id, 0),
+                 "fora_da_comp": True, "confirmado": c.id in estrelas_lidas}
                 for c in fora.certos]
     if fora.vagas_em_duvida:
         nomes = [c.nome for c in fora.pode_ser]

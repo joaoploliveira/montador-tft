@@ -118,6 +118,7 @@ def iniciar_estado():
     st.session_state.setdefault("leitura", None)         # última leitura da tela
     st.session_state.setdefault("emblemas_lidos", [])    # ids de traço dos emblemas no banco
     st.session_state.setdefault("compras_recentes", [])
+    st.session_state.setdefault("painel_de_dano", acompanhamento.PainelDeDano())  # o último completo da partida
     # o nível lido da tela só pode entrar antes de o campo "Nível" ser desenhado
     nivel_lido = st.session_state.pop("nivel_lido", None)
     if nivel_lido:
@@ -174,6 +175,7 @@ def limpar_tudo():
     st.session_state.copias = {}
     st.session_state.acompanhamento = acompanhamento.Acompanhamento()
     st.session_state.compras_recentes = []
+    st.session_state.painel_de_dano = acompanhamento.PainelDeDano()
 
 
 # ---------------------------------------------------------------- leitura da tela do jogo
@@ -204,6 +206,12 @@ def leitura_da_tela(catalogo):
         st.session_state.tracos_lidos_em = time.time()
     st.session_state.tft_na_tela = True
     st.session_state.ultima_tela = tela  # para o print de diagnóstico (visao/diagnostico.py)
+    # o painel de dano vale até o próximo combate, mesmo fechado (ver acompanhamento.PainelDeDano)
+    painel = st.session_state.painel_de_dano
+    painel_antes = list(painel.campeoes)
+    painel.atualizar(leitura.painel_de_dano, leitura.estagio)
+    if any(d.startswith("?") for d in leitura.textos_crus.get("painel_de_dano", [])):
+        diagnostico.guardar(tela, "painel-de-dano-em-duvida", "\n".join(leitura.textos_crus["painel_de_dano"]))
 
     compras = st.session_state.acompanhamento.detectar_compras(leitura)
     acompanhamento.aplicar_compras(st.session_state.unidades, st.session_state.copias, compras)
@@ -211,7 +219,7 @@ def leitura_da_tela(catalogo):
         nomes = [compra.campeao.nome for compra in compras]
         st.session_state.compras_recentes = (nomes + st.session_state.compras_recentes)[:6]
 
-    mudou = bool(compras) or anterior is None or voltou_ao_jogo or (
+    mudou = bool(compras) or anterior is None or voltou_ao_jogo or painel.campeoes != painel_antes or (
         (leitura.nivel, leitura.xp, leitura.estagio, leitura.ouro, leitura.loja, leitura.itens, leitura.tracos,
          leitura.tracos_escondidos, leitura.bigorna)
         != (anterior.nivel, anterior.xp, anterior.estagio, anterior.ouro, anterior.loja, anterior.itens,
@@ -256,6 +264,8 @@ def detalhes_do_tabuleiro(leitura, alvo, provaveis, catalogo):
         f"Estágio {leitura.estagio} · nível {leitura.nivel} · traços escondidos (N+): {leitura.tracos_escondidos}",
         f"Traços lidos: {tracos}",
         f"Comp alvo: {alvo.nome} · prováveis em campo: {', '.join(c.nome for c in provaveis) or 'nenhum'}",
+        "Painel de dano (último lido): " + (", ".join(f"{c.nome} {e}★" for c, e in st.session_state.painel_de_dano.campeoes)
+                                            or "não lido"),
         "OCR do painel de traços:",
         *(f"  {texto}" for texto in leitura.textos_crus.get("tracos", [])),
     ])
@@ -408,13 +418,16 @@ def coluna_comps(situacao, catalogo, componentes):
     if alvo:  # o alvo vai para o topo da lista
         comps = [alvo] + [c for c in comps if chave_da_comp(c) != chave_da_comp(alvo)]
 
-    # quem da comp alvo provavelmente já está no seu tabuleiro (pelos traços lidos): aparece colorido no overlay
-    provaveis_da_comp = montador.provaveis_no_tabuleiro(alvo.campeoes, tracos_lidos, catalogo) if alvo else []
-    # e quem mais está em campo, fora da comp (pelos traços que sobram); só com a leitura ligada
-    fora = montador.ForaDaComp()
+    # quem está no seu tabuleiro: o painel de dano diz quem lutou na última rodada (com estrelas) e os traços
+    # lidos completam o resto. Os da comp aparecem coloridos no overlay; os de fora, depois de um tracinho.
+    provaveis_da_comp, fora, estrelas_lidas = [], montador.ForaDaComp(), {}
     if leitura and alvo:
-        fora = montador.fora_da_comp(provaveis_da_comp, tracos_lidos, catalogo, leitura.nivel or situacao.nivel,
-                                     leitura.tracos_escondidos)
+        do_painel = st.session_state.painel_de_dano.campeoes
+        provaveis_da_comp, fora = montador.quem_esta_em_campo(
+            alvo, tracos_lidos, catalogo, leitura.nivel or situacao.nivel, leitura.tracos_escondidos,
+            [campeao for campeao, _ in do_painel])
+        em_campo = {c.id for c in provaveis_da_comp} | {c.id for c in fora.certos}
+        estrelas_lidas = {c.id: estrelas for c, estrelas in do_painel if c.id in em_campo}
     # um campeão da comp com traço escondido no "2+" só aparece aqui: conta como provável
     da_comp = {c.id for c in alvo.campeoes} if alvo else set()
     provaveis = {c.id for c in provaveis_da_comp} | {c.id for c in fora.certos if c.id in da_comp}
@@ -451,7 +464,7 @@ def coluna_comps(situacao, catalogo, componentes):
         st.html(html_da_loja(leitura.loja, selos))
     estado_compartilhado.salvar(
         estado_compartilhado.montar(alvo, situacao, selos, catalogo, componentes, dicas_agora, frases_dos_itens,
-                                    provaveis, bigorna, fora,
+                                    provaveis, bigorna, fora, estrelas_lidas=estrelas_lidas,
                                     fora_do_jogo=bool(st.session_state.get("lendo")
                                                       and not st.session_state.get("tft_na_tela", True)))
     )
