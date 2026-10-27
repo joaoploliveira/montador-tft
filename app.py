@@ -15,7 +15,7 @@ import streamlit as st
 import atualizar
 from dados import banco, riot
 from interface import estilo
-from interface.cartoes import html_da_comp, html_da_loja, html_das_dicas
+from interface.cartoes import ROTULO_ORIGEM, html_da_comp, html_da_loja, html_das_dicas
 from logica import catalogo as modulo_catalogo
 from logica import itens as modulo_itens
 from logica import dicas as modulo_dicas
@@ -348,14 +348,37 @@ def coluna_comps(situacao, catalogo, componentes):
         if fonte == "Meta":
             st.caption(f"{resumo['partidas']} partidas de Challenger/Grão-Mestre do BR · "
                        "ordem: mais perto do que você tem, depois melhor colocação média")
+    minhas, desconhecidos = manuais.avaliar_todas(situacao, catalogo)
     if fonte in ("Todas", "Minhas"):
-        minhas, desconhecidos = manuais.avaliar_todas(situacao, catalogo)
         comps += minhas
         if desconhecidos:
             st.warning("Campeões não encontrados no set atual: " + ", ".join(desconhecidos))
 
+    # dá para escolher qualquer comp da lista, qualquer comp meta e qualquer comp sua
+    candidatas = {}
+    for comp in comps + da_meta + minhas:
+        candidatas.setdefault(chave_da_comp(comp), comp)
+    escolhida = st.session_state.get("alvo_escolhido")
+    if escolhida not in candidatas:
+        if escolhida:
+            st.warning("A comp que você escolheu sumiu da lista (o algoritmo remonta as comps quando seu jogo muda). "
+                       "Voltei para a automática.")
+        st.session_state.alvo_escolhido = escolhida = None
+    st.selectbox(
+        "🎯 Comp alvo (é a que o overlay mostra e a que a loja marca)", [None, *candidatas], key="alvo_escolhido",
+        format_func=lambda chave: "Automática (a que mais combina com seu tabuleiro)" if chave is None
+        else rotulo_da_comp(candidatas[chave]),
+    )
+
     leitura = st.session_state.leitura if st.session_state.get("lendo") else None
-    alvo = comps[0] if comps else None
+    tracos_lidos = leitura.tracos if leitura else {}
+    if escolhida:
+        alvo = candidatas[escolhida]
+    else:  # automática: a que usa os traços do seu tabuleiro; sem leitura, a 1ª da lista
+        alvo = montador.mais_parecida_com_tabuleiro(candidatas.values(), tracos_lidos) or (comps[0] if comps else None)
+    if alvo:  # o alvo vai para o topo da lista
+        comps = [alvo] + [c for c in comps if chave_da_comp(c) != chave_da_comp(alvo)]
+
     dicas_agora = []
     if leitura and alvo:
         plano = plano_do_alvo(alvo, da_meta)
@@ -363,10 +386,12 @@ def coluna_comps(situacao, catalogo, componentes):
             situacao.unidades.get(c.id) == 3 for c in plano.tres_estrelas
         )
         dicas_agora = modulo_dicas.dicas(leitura, plano, catalogo, faltando=alvo.faltam, tres_estrelas_feitos=feitos)
-        st.html(html_das_dicas(dicas_agora))
+        if dicas_agora:
+            st.html(html_das_dicas(dicas_agora))
     selos = []
     if leitura and any(leitura.loja):
-        selos = estado_compartilhado.selos_da_loja(leitura.loja, comps[:3], situacao)
+        # a loja marca só os campeões da comp alvo (misturar várias comps mandava comprar campeão de outro time)
+        selos = estado_compartilhado.selos_da_loja(leitura.loja, [alvo] if alvo else [], situacao)
         st.html(html_da_loja(leitura.loja, selos))
     estado_compartilhado.salvar(
         estado_compartilhado.montar(alvo, situacao, selos, catalogo, componentes, dicas_agora)
@@ -374,8 +399,29 @@ def coluna_comps(situacao, catalogo, componentes):
 
     if not comps:
         st.info("Nada para mostrar aqui ainda.")
-    for comp in comps:
+    for posicao, comp in enumerate(comps):
         st.html(html_da_comp(comp, situacao, catalogo, componentes))
+        _, em_comum = montador.combina_com_tabuleiro(comp, tracos_lidos)
+        if em_comum:
+            st.caption("🧩 Usa traços do seu tabuleiro: " + ", ".join(em_comum))
+        chave_comp = chave_da_comp(comp)
+        if comp is alvo:
+            st.caption("🎯 Esta é a sua comp alvo" + ("." if escolhida else " (escolhida automaticamente)."))
+        if chave_comp != escolhida:
+            st.button("🎯 Jogar esta", key=f"jogar_{posicao}", on_click=escolher_alvo, args=(chave_comp,))
+
+
+def chave_da_comp(comp):
+    """Identifica a comp entre uma atualização e outra da página (os objetos são recriados a cada vez)."""
+    return f"{comp.origem}|{comp.nome}|{','.join(sorted(c.id for c in comp.campeoes))}"
+
+
+def rotulo_da_comp(comp):
+    return f"{ROTULO_ORIGEM.get(comp.origem, comp.origem)} · {comp.nome} (você tem {len(comp.tem)}/{len(comp.campeoes)})"
+
+
+def escolher_alvo(chave):
+    st.session_state.alvo_escolhido = chave
 
 
 MINIMO_EM_COMUM = 4  # campeões em comum para uma comp do algoritmo usar o plano de uma comp meta

@@ -22,8 +22,9 @@ LOJA_NOMES = [
     (1678, 1393, 1868, 1428),
 ]
 
-# carta inteira da loja (o overlay desenha a moldura em volta)
-CARTAS_DA_LOJA = [(x0, 1234, x0 + 258, 1434) for x0 in (600, 870, 1140, 1408, 1678)]
+# carta inteira da loja, da borda verde de fora (o overlay desenha a moldura em volta)
+# medido num print de 2026-10-27: as cartas têm 256 de largura e ficam a cada ~269,3 pixels
+CARTAS_DA_LOJA = [(x0, 1237, x0 + 256, 1432) for x0 in (598, 867, 1137, 1406, 1675)]
 
 # painel de traços (lado esquerdo): uma linha por traço, com número + nome + breakpoints
 TRACO_X0, TRACO_X1 = 140, 340

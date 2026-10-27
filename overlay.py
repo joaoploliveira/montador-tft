@@ -20,6 +20,7 @@ from visao.captura import monitor_do_jogo
 ATUALIZAR_A_CADA_MS = 1000
 COR_INVISIVEL = "#010203"      # o que for desta cor fica transparente
 OPACIDADE = 0.93
+FOLGA_DA_MOLDURA = 4  # pixels (de 2560x1440) entre a carta da loja e a moldura do overlay
 PAINEL_X, PAINEL_Y, PAINEL_LARGURA = 60, 70, 600  # canto de cima à esquerda, acima dos traços (pixels de 2560x1440)
 PAINEL_Y_MAXIMO = 330  # daqui para baixo fica o painel de traços, que a leitura da tela precisa enxergar
 # se o painel não couber, vai tirando partes nesta ordem: (mostra traços, mostra itens, quantas dicas)
@@ -94,8 +95,9 @@ class Overlay:
             if not selo:
                 continue
             cor = COR_SELO[selo]
-            # moldura por fora da carta, para não tapar o nome que a leitura da tela usa
-            self.canvas.create_rectangle(self.px(x0 - 6), self.px(y0 - 4), self.px(x1 + 6), self.px(y1 + 2),
+            # moldura por fora da carta (mesma folga nos 4 lados), para não tapar o nome que a leitura da tela usa
+            f = FOLGA_DA_MOLDURA
+            self.canvas.create_rectangle(self.px(x0 - f), self.px(y0 - f), self.px(x1 + f), self.px(y1 + f),
                                          outline=cor, width=self.px(5))
             self._chip(self.px(x0 + 8), self.px(y0 + 8), selo, cor, "#fff" if cor == "#2fb35a" else "#2a1d00",
                        marca="loja")

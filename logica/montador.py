@@ -203,6 +203,36 @@ def sugerir_comps(situacao, catalogo, quantidade=5, tamanho=None):
     return sorted(comps, key=lambda comp: comp.pontuacao, reverse=True)
 
 
+def combina_com_tabuleiro(comp, tracos_lidos):
+    """Quanto a comp combina com os traços do seu tabuleiro (lidos do jogo). Devolve (pontos, nomes dos traços).
+
+    Cada traço conta até a quantidade que você tem: com Florescer 3 na tela, uma comp com
+    Florescer 5 soma 3 e uma com Florescer 2 soma 2. Traços de um campeão só não contam.
+    """
+    pontos, nomes = 0, []
+    for traco_no_time in comp.tracos:
+        quantidade = tracos_lidos.get(traco_no_time.traco.id, 0)
+        if quantidade and not traco_no_time.traco.unico:
+            pontos += min(quantidade, traco_no_time.quantidade)
+            nomes.append(traco_no_time.traco.nome)
+    return pontos, nomes
+
+
+def mais_parecida_com_tabuleiro(comps, tracos_lidos):
+    """A comp que mais combina com o seu tabuleiro, ou None se nenhuma usa os seus traços.
+
+    No empate, ganha a que leva esses traços mais longe (ex.: Florescer 5 em vez de 3,
+    porque ali ele é o foco e não um detalhe); se ainda empatar, a que vem primeiro.
+    """
+    melhor, melhor_nota = None, (0, 0)
+    for comp in comps:
+        pontos, _ = combina_com_tabuleiro(comp, tracos_lidos)
+        investimento = sum(t.quantidade for t in comp.tracos if t.traco.id in tracos_lidos and not t.traco.unico)
+        if pontos and (pontos, investimento) > melhor_nota:
+            melhor, melhor_nota = comp, (pontos, investimento)
+    return melhor
+
+
 def copias_que_voce_tem(campeao, situacao):
     return copias_por_estrela(situacao.unidades[campeao.id]) if campeao.id in situacao.unidades else 0
 

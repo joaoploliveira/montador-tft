@@ -17,18 +17,17 @@ LOJA_VALE_POR = 15  # segundos: sem leitura nova nesse tempo, a marcação da lo
 
 
 def selos_da_loja(loja, comps_alvo, situacao):
-    """Um selo por carta: SOBE ★ se você já tem, COMPRE se está nas comps sugeridas, "" se nenhum."""
+    """Um selo por carta, só para campeões das comps alvo: SOBE ★ se você já tem, COMPRE se não tem.
+    Campeão que não está nas comps fica sem selo, mesmo que você tenha (não vale gastar ouro nele)."""
     nas_comps = {c.id for comp in comps_alvo for c in comp.campeoes}
     selos = []
     for campeao in loja:
-        if campeao is None:
+        if campeao is None or campeao.id not in nas_comps:
             selos.append("")
         elif campeao.id in situacao.unidades:
             selos.append(SELO_SOBE)
-        elif campeao.id in nas_comps:
-            selos.append(SELO_COMPRE)
         else:
-            selos.append("")
+            selos.append(SELO_COMPRE)
     return selos
 
 
@@ -36,7 +35,7 @@ DICAS_NO_OVERLAY = 2
 
 
 def montar(comp, situacao, selos, catalogo, componentes, dicas=()):
-    """O que o overlay mostra: a comp alvo (a primeira da lista do app), os selos da loja e as dicas."""
+    """O que o overlay mostra: a comp alvo (a escolhida no app, ou a primeira da lista), os selos da loja e as dicas."""
     dados = {"loja": selos, "comp": None, "dicas": [d.texto for d in list(dicas)[:DICAS_NO_OVERLAY]]}
     if comp is None:
         return dados
