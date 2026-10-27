@@ -15,7 +15,8 @@ import streamlit as st
 import atualizar
 from dados import banco, riot
 from interface import estilo
-from interface.cartoes import ROTULO_ORIGEM, html_da_comp, html_da_loja, html_das_dicas, html_dos_itens_agora
+from interface.cartoes import (ROTULO_ORIGEM, html_da_bigorna, html_da_comp, html_da_loja, html_das_dicas,
+                               html_dos_itens_agora)
 from logica import catalogo as modulo_catalogo
 from logica import itens as modulo_itens
 from logica import dicas as modulo_dicas
@@ -196,9 +197,10 @@ def leitura_da_tela(catalogo):
 
     anterior = st.session_state.leitura
     mudou = bool(compras) or anterior is None or (
-        (leitura.nivel, leitura.xp, leitura.estagio, leitura.ouro, leitura.loja, leitura.itens, leitura.tracos)
+        (leitura.nivel, leitura.xp, leitura.estagio, leitura.ouro, leitura.loja, leitura.itens, leitura.tracos,
+         leitura.bigorna)
         != (anterior.nivel, anterior.xp, anterior.estagio, anterior.ouro, anterior.loja, anterior.itens,
-            anterior.tracos)
+            anterior.tracos, anterior.bigorna)
     )
     st.session_state.leitura = leitura
     estado_compartilhado.renovar()
@@ -396,6 +398,13 @@ def coluna_comps(situacao, catalogo, componentes):
         frases_dos_itens = modulo_itens.frases_do_plano(modulo_itens.plano_de_itens(alvo, componentes, catalogo))
         if frases_dos_itens:
             st.html(html_dos_itens_agora(frases_dos_itens, alvo.nome))
+    bigorna = None  # com uma bigorna aberta: qual opção pegar e onde ela está na tela
+    if leitura and leitura.bigorna and alvo:
+        escolha = modulo_itens.melhor_opcao([item for item, _ in leitura.bigorna], alvo, componentes, catalogo)
+        if escolha:
+            caixa = next(caixa for item, caixa in leitura.bigorna if item is escolha.item)
+            bigorna = {"item": escolha.item.nome, "motivo": escolha.motivo, "caixa": caixa}
+            st.html(html_da_bigorna(escolha))
     selos = []
     if leitura and any(leitura.loja):
         # a loja marca só os campeões da comp alvo (misturar várias comps mandava comprar campeão de outro time)
@@ -403,7 +412,7 @@ def coluna_comps(situacao, catalogo, componentes):
         st.html(html_da_loja(leitura.loja, selos))
     estado_compartilhado.salvar(
         estado_compartilhado.montar(alvo, situacao, selos, catalogo, componentes, dicas_agora, frases_dos_itens,
-                                    provaveis)
+                                    provaveis, bigorna)
     )
 
     if not comps:

@@ -65,3 +65,6 @@ class Tradutor:
 
     def traco_do_texto(self, texto):
         return self.tracos.buscar_texto(texto)
+
+    def item_do_texto(self, texto):
+        return self.itens.buscar_texto(texto)

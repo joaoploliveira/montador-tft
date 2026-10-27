@@ -35,13 +35,15 @@ def selos_da_loja(loja, comps_alvo, situacao, provaveis=()):
 DICAS_NO_OVERLAY = 2
 
 
-def montar(comp, situacao, selos, catalogo, componentes, dicas=(), frases_dos_itens=(), provaveis=()):
+def montar(comp, situacao, selos, catalogo, componentes, dicas=(), frases_dos_itens=(), provaveis=(),
+           bigorna=None):
     """O que o overlay mostra: a comp alvo (a escolhida no app, ou a primeira da lista), os selos da loja,
     as dicas e o plano de itens (o que montar e em quem; ver logica/itens.py:frases_do_plano).
     Campeões e itens levam a `chave` do ícone, para o overlay desenhar as imagens.
-    `provaveis`: ids que provavelmente estão no tabuleiro (deduzidos dos traços lidos)."""
+    `provaveis`: ids que provavelmente estão no tabuleiro (deduzidos dos traços lidos).
+    `bigorna`: com uma bigorna aberta, {"item", "motivo", "caixa"} da opção que vale pegar."""
     dados = {"loja": selos, "comp": None, "dicas": [d.texto for d in list(dicas)[:DICAS_NO_OVERLAY]],
-             "itens_agora": [_frase_simples(f) for f in frases_dos_itens]}
+             "itens_agora": [_frase_simples(f) for f in frases_dos_itens], "bigorna": bigorna}
     if comp is None:
         return dados
     carry = next(iter(modulo_itens.carregadores(comp, 1)), None)
@@ -101,12 +103,12 @@ def renovar():
 
 
 def ler():
-    """Devolve os dados, ou None se o app ainda não escreveu. A loja some se a leitura parou."""
+    """Devolve os dados, ou None se o app ainda não escreveu. A loja e a bigorna somem se a leitura parou."""
     try:
         dados = json.loads(ARQUIVO.read_text(encoding="utf-8"))
         idade = time.time() - ARQUIVO.stat().st_mtime
     except (OSError, ValueError):
         return None
     if idade > LOJA_VALE_POR:
-        dados["loja"] = []
+        dados["loja"], dados["bigorna"] = [], None
     return dados

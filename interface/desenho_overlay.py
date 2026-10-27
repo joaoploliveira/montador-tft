@@ -29,7 +29,7 @@ COR_TRACO = {1: ("#8c5a3c", "#ffffff"), 2: ("#aebdca", "#17202a"), 3: ("#e8b941"
 COR_ORIGEM = {"Meta": ("#e8b941", "#2a1d00", "META"), "Algoritmo": ("#2f7ae5", "#ffffff", "PARA VOCÊ"),
               "Minhas comps": ("#b14be0", "#ffffff", "MINHA")}
 COR_STATUS_ITEM = {"Pode montar": "#2fb35a", "Falta 1 componente": "#e8b941"}  # bolinha no ícone do item
-COR_SELO = {"COMPRE": ("#2fb35a", "#ffffff"), "SOBE ★": ("#e8b941", "#2a1d00")}
+COR_SELO = {"COMPRE": ("#2fb35a", "#ffffff"), "SOBE ★": ("#e8b941", "#2a1d00"), "PEGUE": ("#2fb35a", "#ffffff")}
 
 MARGEM = 14
 RETRATO_MAXIMO, RETRATO_ESPACO = 52, 7
@@ -260,6 +260,12 @@ def _frases_de_itens(imagem, desenho, frases, pincel, esquerda, direita, y):
             desenho.text((x, meio), conteudo, font=fonte_usada, fill=cor_usada, anchor="lm")
             x += fonte_usada.getlength(conteudo) + px(6)
 
+        def nome_do_item(reserva):
+            """O nome do item, cortado com '…' se não sobrar espaço para o resto da linha (`reserva`)."""
+            texto(_cortar(frase["item"], fonte, direita - x - reserva))
+
+        # o que vem depois do nome do item: "→ [campeão] Nome" (e no "quase", "· falta [componente]")
+        para_quem = fonte_sinal.getlength("→") + lado + fonte.getlength(frase["campeao"]) + px(20)
         if frase["tipo"] == "montar":
             for posicao, componente in enumerate(frase["componentes"]):
                 if posicao:
@@ -267,13 +273,17 @@ def _frases_de_itens(imagem, desenho, frases, pincel, esquerda, direita, y):
                 icone("item", componente)
             texto("→", fonte_sinal, APAGADO)
             icone("item", frase["item_chave"])
-            texto(frase["item"])
+            nome_do_item(para_quem)
             texto("→", fonte_sinal, APAGADO)
             icone("campeao", frase["campeao_chave"])
+            texto(frase["campeao"], cor_usada=TEXTO)
         elif frase["tipo"] == "quase":
             texto("Quase:", fonte_sinal, APAGADO)
             icone("item", frase["item_chave"])
-            texto(frase["item"])
+            nome_do_item(para_quem + fonte_sinal.getlength("· falta") + lado + px(12))
+            texto("→", fonte_sinal, APAGADO)
+            icone("campeao", frase["campeao_chave"])
+            texto(frase["campeao"], cor_usada=TEXTO)
             texto("· falta", fonte_sinal, APAGADO)
             icone("item", frase["falta_chave"])
         else:
@@ -347,25 +357,41 @@ def etiqueta_do_campeao(campeao, pincel):
 
 # ---------------------------------------------------------------- loja
 
-def marcacao_da_loja(selo, largura_carta, altura_carta, folga, pincel):
+def aviso(texto, pincel, cor_da_borda="#2fb35a"):
+    """Etiqueta solta com um texto curto (ex.: o motivo de pegar uma opção da bigorna)."""
+    px = pincel.px
+    fonte = pincel.fonte(14, "seminegrito")
+    largura, altura = round(fonte.getlength(texto)) + 2 * px(12), px(30)
+    imagem = Image.new("RGBA", (largura, altura), (0, 0, 0, 0))
+    desenho = ImageDraw.Draw(imagem)
+    desenho.rounded_rectangle((0, 0, largura - 1, altura - 1), altura // 2, fill=FUNDO, outline=cor_da_borda,
+                              width=px(2))
+    desenho.text((largura / 2, altura / 2), texto, font=fonte, fill=TEXTO, anchor="mm")
+    return imagem
+
+
+def marcacao_da_loja(selo, largura_carta, altura_carta, folga, pincel, com_etiqueta=True, espessura=5):
     """Moldura em volta da carta e a etiqueta (COMPRE / SOBE ★) no meio da borda de cima.
 
     A imagem começa `folga + linha` antes da carta e a etiqueta sobe `metade da etiqueta`;
     devolve (imagem, deslocamento_x, deslocamento_y) para o overlay saber onde colocar.
+    Sem etiqueta (bigorna, onde o ícone do item fica em cima da borda), só a moldura.
     """
     px = pincel.px
-    linha = px(5)
+    linha = px(espessura)
     fundo, cor_texto = COR_SELO.get(selo, ("#2fb35a", "#ffffff"))
     fonte, fonte_estrela = pincel.fonte(15, "negrito"), pincel.fonte(15, "simbolos")  # a negrito não tem ★
     texto, estrela = selo.replace("★", "").strip(), "★" if "★" in selo else ""
     altura_etiqueta = px(26)
-    sobe = altura_etiqueta // 2
+    sobe = altura_etiqueta // 2 if com_etiqueta else 0
 
     largura = px(largura_carta) + 2 * (px(folga) + linha)
     altura = px(altura_carta) + 2 * (px(folga) + linha) + sobe
     imagem = Image.new("RGBA", (largura, altura), (0, 0, 0, 0))
     desenho = ImageDraw.Draw(imagem)
     desenho.rounded_rectangle((0, sobe, largura - 1, altura - 1), px(12), outline=fundo, width=linha)
+    if not com_etiqueta:
+        return imagem, -(px(folga) + linha), -(px(folga) + linha)
 
     espaco = px(4) if estrela else 0
     largura_texto = fonte.getlength(texto) + espaco + fonte_estrela.getlength(estrela)

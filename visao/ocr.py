@@ -14,6 +14,7 @@ class Linha:
     texto: str
     x: float  # posição dentro da imagem recortada (em pixels da imagem original)
     y: float
+    largura: float = 0  # do começo da 1ª palavra ao fim da última
 
 
 MARGEM = 30  # o OCR do Windows erra menos quando o texto não encosta na borda
@@ -39,8 +40,11 @@ def ler_linhas(imagem, inverter=False, ampliar=AMPLIAR, limiar=0):
     resultado = winocr.recognize_pil_sync(preparar(imagem, inverter, ampliar, limiar), IDIOMA)
     linhas = []
     for linha in resultado.get("lines", []):
-        primeira = linha["words"][0]["bounding_rect"] if linha.get("words") else {"x": MARGEM, "y": MARGEM}
-        linhas.append(Linha(linha["text"], (primeira["x"] - MARGEM) / ampliar, (primeira["y"] - MARGEM) / ampliar))
+        palavras = linha.get("words") or [{"bounding_rect": {"x": MARGEM, "y": MARGEM, "width": 0}}]
+        primeira, ultima = palavras[0]["bounding_rect"], palavras[-1]["bounding_rect"]
+        largura = (ultima["x"] + ultima.get("width", 0) - primeira["x"]) / ampliar
+        linhas.append(Linha(linha["text"], (primeira["x"] - MARGEM) / ampliar, (primeira["y"] - MARGEM) / ampliar,
+                            largura))
     return linhas
 
 
