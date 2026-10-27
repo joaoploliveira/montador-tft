@@ -172,20 +172,19 @@ def coletar_partidas(conexao, chave, jogadores=60, partidas_por_jogador=20, prog
 def coletar_minhas_partidas(conexao, chave, riot_id, quantidade=30, progresso=print):
     """Baixa as suas partidas mais recentes (as que já estão no banco não são baixadas de novo).
 
-    Guarda o Riot ID e o puuid no banco (metadados), para o app saber quais tabuleiros são seus.
+    Junta a conta (Riot ID e puuid) às suas contas no banco, para o app saber quais tabuleiros são seus.
     Devolve quantas partidas novas foram salvas.
     """
     cliente = ClienteRiot(chave)
     progresso(f"Procurando {riot_id}...")
     puuid = cliente.puuid_do_riot_id(riot_id)
-    banco.salvar_metadado(conexao, "riot_id", riot_id.strip())
-    banco.salvar_metadado(conexao, "meu_puuid", puuid)
+    banco.salvar_conta(conexao, riot_id.strip(), puuid)
     conexao.commit()
 
     ja_salvas = {linha[0] for linha in conexao.execute("SELECT match_id FROM partidas")}
     novas = [m for m in cliente.ids_partidas(puuid, quantidade) if m not in ja_salvas]
     for numero, match_id in enumerate(novas, start=1):
-        progresso(f"Baixando sua partida {numero}/{len(novas)}...")
+        progresso(f"{riot_id}: baixando partida {numero}/{len(novas)}...")
         partida = cliente.partida(match_id)
         if partida:
             _salvar_partida(conexao, partida, origem=banco.ORIGEM_MINHAS)

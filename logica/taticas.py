@@ -130,17 +130,18 @@ def ler_tabuleiros(catalogo):
 
 
 def meus_tabuleiros(catalogo):
-    """Os seus tabuleiros finais nas ranqueadas do set (do mais recente para o mais antigo).
-    Vazio se você ainda não baixou suas partidas (aba Aprendizado)."""
+    """Os seus tabuleiros finais nas ranqueadas do set, de todas as suas contas (do mais recente
+    para o mais antigo). Vazio se você ainda não baixou suas partidas (aba Aprendizado)."""
     conexao = banco.conectar()
-    puuid = banco.metadado(conexao, "meu_puuid")
-    if not puuid:
+    puuids = list(banco.minhas_contas(conexao).values())
+    if not puuids:
         conexao.close()
         return []
     linhas = conexao.execute(
-        """SELECT p.* FROM participacoes p JOIN partidas m ON m.match_id = p.match_id
-           WHERE p.puuid = ? AND m.fila = ? AND m.set_numero = ? ORDER BY m.data DESC""",
-        (puuid, FILA_RANQUEADA, int(float(catalogo.numero_set))),
+        f"""SELECT p.* FROM participacoes p JOIN partidas m ON m.match_id = p.match_id
+            WHERE p.puuid IN ({",".join("?" * len(puuids))}) AND m.fila = ? AND m.set_numero = ?
+            ORDER BY m.data DESC""",
+        (*puuids, FILA_RANQUEADA, int(float(catalogo.numero_set))),
     ).fetchall()
     conexao.close()
     return _montar_tabuleiros(linhas, catalogo)

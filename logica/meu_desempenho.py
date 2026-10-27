@@ -21,6 +21,15 @@ class Resumo:
 
 
 @dataclass
+class LinhaDaConta:
+    conta: str
+    jogos: int
+    colocacao_media: float
+    top4: float
+    vitorias: float
+
+
+@dataclass
 class LinhaDaComp:
     nome: str
     jogos: int
@@ -47,6 +56,17 @@ def resumo(meus, alto_elo):
         nivel_medio=_media(t.nivel for t in meus),
         nivel_medio_alto_elo=_media(t.nivel for t in alto_elo),
     )
+
+
+def por_conta(meus, contas):
+    """Uma linha por conta sua (`contas`: {Riot ID: puuid}), na ordem das contas."""
+    linhas = []
+    for riot_id, puuid in contas.items():
+        desempenho = taticas.Desempenho([t.colocacao for t in meus if t.puuid == puuid])
+        if desempenho.jogos:
+            linhas.append(LinhaDaConta(riot_id, desempenho.jogos, desempenho.media, desempenho.top4,
+                                       desempenho.vitorias))
+    return linhas
 
 
 def por_comp(meus, alto_elo, catalogo):

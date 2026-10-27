@@ -8,6 +8,7 @@ Os ids de tudo são os nomes internos da Riot (ex.: 'DA_18_LeBlanc', 'DA_18_Sola
 'DA_InfinityEdge'), os mesmos que aparecem nas partidas da API. Exemplos de consulta no README.
 """
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -76,6 +77,21 @@ def metadado(conexao, chave, padrao=None):
 
 def salvar_metadado(conexao, chave, valor):
     conexao.execute("INSERT OR REPLACE INTO metadados VALUES (?, ?)", (chave, str(valor)))
+
+
+def minhas_contas(conexao):
+    """{Riot ID: puuid} das suas contas (aba Aprendizado). Lê também o formato antigo, de uma conta só."""
+    contas = json.loads(metadado(conexao, "minhas_contas", "{}"))
+    riot_id_antigo, puuid_antigo = metadado(conexao, "riot_id"), metadado(conexao, "meu_puuid")
+    if riot_id_antigo and puuid_antigo and puuid_antigo not in contas.values():
+        contas[riot_id_antigo] = puuid_antigo
+    return contas
+
+
+def salvar_conta(conexao, riot_id, puuid):
+    contas = {r: p for r, p in minhas_contas(conexao).items() if p != puuid}  # Riot ID novo da mesma conta
+    contas[riot_id] = puuid
+    salvar_metadado(conexao, "minhas_contas", json.dumps(contas, ensure_ascii=False))
 
 
 def importar_partidas_antigas(conexao, caminho_antigo):

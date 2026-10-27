@@ -619,14 +619,18 @@ def aba_aprendizado(catalogo):
     st.markdown("**1. Suas partidas**")
     conexao = banco.conectar()
     a, b = st.columns([3, 2], vertical_alignment="bottom")
-    riot_id = a.text_input("Seu Riot ID", value=banco.metadado(conexao, "riot_id", ""), placeholder="nome#tag")
-    if b.button("⬇️ Baixar minhas partidas (últimas 30)") and riot_id.strip():
+    texto = a.text_input("Seus Riot IDs (separados por vírgula)", value=", ".join(banco.minhas_contas(conexao)),
+                         placeholder="nome#tag, outra#tag")
+    riot_ids = [r.strip() for r in texto.split(",") if r.strip()]
+    if b.button("⬇️ Baixar minhas partidas (últimas 30 de cada conta)") and riot_ids:
         with st.status("Baixando suas partidas...", expanded=True) as status:
             try:
-                novas = riot.coletar_minhas_partidas(conexao, riot.ler_chave() or "", riot_id, progresso=status.write)
+                novas = sum(riot.coletar_minhas_partidas(conexao, riot.ler_chave() or "", r, progresso=status.write)
+                            for r in riot_ids)
                 status.update(label=f"Pronto: {novas} partidas novas.", state="complete")
             except riot.ErroRiot as erro:
                 status.update(label=str(erro), state="error")
+    contas = banco.minhas_contas(conexao)
     conexao.close()
 
     meus = taticas.meus_tabuleiros(catalogo)
@@ -638,6 +642,12 @@ def aba_aprendizado(catalogo):
         c3.metric("Vitórias", f"{geral.vitorias:.0%}")
         c4.metric("Nível final", f"{geral.nivel_medio:.1f}", delta_color="off",
                   delta=f"{geral.nivel_medio - geral.nivel_medio_alto_elo:+.1f} que o alto elo")
+        if len(contas) > 1:
+            st.dataframe(pd.DataFrame([
+                {"Conta": l.conta, "Jogos": l.jogos, "Colocação média": round(l.colocacao_media, 2),
+                 "Top 4": f"{l.top4:.0%}", "Vitórias": f"{l.vitorias:.0%}"}
+                for l in meu_desempenho.por_conta(meus, contas)
+            ]), hide_index=True, width="stretch")
         st.dataframe(pd.DataFrame([
             {"Comp": l.nome, "Jogos": l.jogos, "Sua colocação": round(l.sua_colocacao, 2),
              "Seu top 4": f"{l.seu_top4:.0%}", "Alto elo": None if l.alto_elo_colocacao is None
