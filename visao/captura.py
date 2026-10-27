@@ -30,6 +30,13 @@ def capturar_tela():
         return Image.frombytes("RGB", bruto.size, bruto.bgra, "raw", "BGRX")
 
 
+def capturar_regiao(esquerda, topo, largura, altura):
+    """Print de um pedaço da tela (em pixels da tela), como imagem PIL. Bem mais rápido que a tela toda."""
+    with _abrir_mss() as tela:
+        bruto = tela.grab({"left": esquerda, "top": topo, "width": largura, "height": altura})
+        return Image.frombytes("RGB", bruto.size, bruto.bgra, "raw", "BGRX")
+
+
 def abrir_print(caminho):
     return Image.open(caminho).convert("RGB")
 

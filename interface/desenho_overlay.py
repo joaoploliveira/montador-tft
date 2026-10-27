@@ -260,6 +260,12 @@ def _frases_de_itens(imagem, desenho, frases, pincel, esquerda, direita, y):
             desenho.text((x, meio), conteudo, font=fonte_usada, fill=cor_usada, anchor="lm")
             x += fonte_usada.getlength(conteudo) + px(6)
 
+        def nome_do_item(reserva):
+            """O nome do item, cortado com '…' se não sobrar espaço para o resto da linha (`reserva`)."""
+            texto(_cortar(frase["item"], fonte, direita - x - reserva))
+
+        # o que vem depois do nome do item: "→ [campeão] Nome" (e no "quase", "· falta [componente]")
+        para_quem = fonte_sinal.getlength("→") + lado + fonte.getlength(frase["campeao"]) + px(20)
         if frase["tipo"] == "montar":
             for posicao, componente in enumerate(frase["componentes"]):
                 if posicao:
@@ -267,13 +273,17 @@ def _frases_de_itens(imagem, desenho, frases, pincel, esquerda, direita, y):
                 icone("item", componente)
             texto("→", fonte_sinal, APAGADO)
             icone("item", frase["item_chave"])
-            texto(frase["item"])
+            nome_do_item(para_quem)
             texto("→", fonte_sinal, APAGADO)
             icone("campeao", frase["campeao_chave"])
+            texto(frase["campeao"], cor_usada=TEXTO)
         elif frase["tipo"] == "quase":
             texto("Quase:", fonte_sinal, APAGADO)
             icone("item", frase["item_chave"])
-            texto(frase["item"])
+            nome_do_item(para_quem + fonte_sinal.getlength("· falta") + lado + px(12))
+            texto("→", fonte_sinal, APAGADO)
+            icone("campeao", frase["campeao_chave"])
+            texto(frase["campeao"], cor_usada=TEXTO)
             texto("· falta", fonte_sinal, APAGADO)
             icone("item", frase["falta_chave"])
         else:
@@ -360,7 +370,7 @@ def aviso(texto, pincel, cor_da_borda="#2fb35a"):
     return imagem
 
 
-def marcacao_da_loja(selo, largura_carta, altura_carta, folga, pincel, com_etiqueta=True):
+def marcacao_da_loja(selo, largura_carta, altura_carta, folga, pincel, com_etiqueta=True, espessura=5):
     """Moldura em volta da carta e a etiqueta (COMPRE / SOBE ★) no meio da borda de cima.
 
     A imagem começa `folga + linha` antes da carta e a etiqueta sobe `metade da etiqueta`;
@@ -368,7 +378,7 @@ def marcacao_da_loja(selo, largura_carta, altura_carta, folga, pincel, com_etiqu
     Sem etiqueta (bigorna, onde o ícone do item fica em cima da borda), só a moldura.
     """
     px = pincel.px
-    linha = px(5)
+    linha = px(espessura)
     fundo, cor_texto = COR_SELO.get(selo, ("#2fb35a", "#ffffff"))
     fonte, fonte_estrela = pincel.fonte(15, "negrito"), pincel.fonte(15, "simbolos")  # a negrito não tem ★
     texto, estrela = selo.replace("★", "").strip(), "★" if "★" in selo else ""
