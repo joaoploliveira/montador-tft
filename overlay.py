@@ -106,7 +106,7 @@ class Overlay:
             self.canvas.delete("all")
             self.imagens, self.retratos, self.campeao_do_mouse = [], [], None
             self.bigorna_na_tela = None
-            if dados:
+            if dados and not dados.get("fora_do_jogo"):
                 self.desenhar_loja(dados.get("loja", []))
                 if dados.get("comp"):
                     self.desenhar_painel(dados["comp"], dados.get("dicas", []), dados.get("itens_agora", []))

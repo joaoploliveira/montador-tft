@@ -24,6 +24,7 @@ from logica import manuais, meta, montador, taticas
 from logica.loja import chance_na_loja
 from visao import acompanhamento, estado_compartilhado
 from visao.captura import capturar_tela
+from visao import diagnostico
 from visao.leitor import Leitor
 
 st.set_page_config(page_title="Montador TFT", page_icon="🧩", layout="wide", initial_sidebar_state="collapsed")
@@ -181,13 +182,20 @@ def leitura_da_tela(catalogo):
     if not st.session_state.get("lendo"):
         return
     try:
-        leitura = carregar_leitor().ler(capturar_tela())
+        tela = capturar_tela()
+        leitura = carregar_leitor().ler(tela)
     except Exception as erro:  # ex.: tela bloqueada
         st.caption(f"⚠️ Não consegui capturar a tela: {erro}")
         return
     if not (leitura.nivel or leitura.ouro is not None or any(leitura.loja) or leitura.tracos):
         st.caption("⏸️ Não achei o TFT na tela (o jogo precisa estar em tela cheia ou sem bordas).")
+        if st.session_state.get("tft_na_tela", True):  # acabou de sair: o overlay esconde o painel
+            st.session_state.tft_na_tela = False
+            st.rerun(scope="app")
         return
+    voltou_ao_jogo = not st.session_state.get("tft_na_tela", True)
+    st.session_state.tft_na_tela = True
+    st.session_state.ultima_tela = tela  # para o print de diagnóstico (visao/diagnostico.py)
 
     compras = st.session_state.acompanhamento.detectar_compras(leitura)
     acompanhamento.aplicar_compras(st.session_state.unidades, st.session_state.copias, compras)
@@ -196,7 +204,7 @@ def leitura_da_tela(catalogo):
         st.session_state.compras_recentes = (nomes + st.session_state.compras_recentes)[:6]
 
     anterior = st.session_state.leitura
-    mudou = bool(compras) or anterior is None or (
+    mudou = bool(compras) or anterior is None or voltou_ao_jogo or (
         (leitura.nivel, leitura.xp, leitura.estagio, leitura.ouro, leitura.loja, leitura.itens, leitura.tracos,
          leitura.tracos_escondidos, leitura.bigorna)
         != (anterior.nivel, anterior.xp, anterior.estagio, anterior.ouro, anterior.loja, anterior.itens,
@@ -232,6 +240,18 @@ def resumo_da_leitura(catalogo):
     if leitura.tracos:
         no_jogo = ", ".join(f"{catalogo.tracos[t].nome} {q}" for t, q in leitura.tracos.items())
         st.caption(f"Traços no seu tabuleiro (lidos do jogo): {no_jogo}")
+
+
+def detalhes_do_tabuleiro(leitura, alvo, provaveis, catalogo):
+    """O que foi lido do tabuleiro, em texto, para acompanhar o print de diagnóstico."""
+    tracos = ", ".join(f"{catalogo.tracos[t].nome} {q}" for t, q in leitura.tracos.items())
+    return "\n".join([
+        f"Estágio {leitura.estagio} · nível {leitura.nivel} · traços escondidos (N+): {leitura.tracos_escondidos}",
+        f"Traços lidos: {tracos}",
+        f"Comp alvo: {alvo.nome} · prováveis em campo: {', '.join(c.nome for c in provaveis) or 'nenhum'}",
+        "OCR do painel de traços:",
+        *(f"  {texto}" for texto in leitura.textos_crus.get("tracos", [])),
+    ])
 
 
 # ---------------------------------------------------------------- coluna da esquerda: seu jogo
@@ -392,6 +412,9 @@ def coluna_comps(situacao, catalogo, componentes):
     da_comp = {c.id for c in alvo.campeoes} if alvo else set()
     provaveis = {c.id for c in provaveis_da_comp} | {c.id for c in fora.certos if c.id in da_comp}
     fora.certos = [c for c in fora.certos if c.id not in da_comp]
+    if fora.sem_combinacao:  # nenhum time fecha os traços lidos: guarda o print para conferir a leitura
+        diagnostico.guardar(st.session_state.get("ultima_tela"), "tabuleiro-sem-combinacao",
+                            detalhes_do_tabuleiro(leitura, alvo, provaveis_da_comp, catalogo))
 
     dicas_agora = []
     if leitura and alvo:
@@ -421,7 +444,9 @@ def coluna_comps(situacao, catalogo, componentes):
         st.html(html_da_loja(leitura.loja, selos))
     estado_compartilhado.salvar(
         estado_compartilhado.montar(alvo, situacao, selos, catalogo, componentes, dicas_agora, frases_dos_itens,
-                                    provaveis, bigorna, fora)
+                                    provaveis, bigorna, fora,
+                                    fora_do_jogo=bool(st.session_state.get("lendo")
+                                                      and not st.session_state.get("tft_na_tela", True)))
     )
 
     if not comps:
