@@ -6,6 +6,7 @@ Este arquivo só monta a página. O visual (HTML/CSS) fica em interface/ e as co
 import os
 import subprocess
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -25,7 +26,7 @@ from logica.loja import chance_na_loja
 from visao import acompanhamento, estado_compartilhado
 from visao.captura import capturar_tela
 from visao import diagnostico
-from visao.leitor import Leitor
+from visao.leitor import Leitor, tracos_tapados
 
 st.set_page_config(page_title="Montador TFT", page_icon="🧩", layout="wide", initial_sidebar_state="collapsed")
 
@@ -33,6 +34,7 @@ ADICIONAR, REMOVER = "➕ Adicionar", "➖ Remover"
 FONTES = ["Todas", "Para você", "Meta", "Minhas"]
 BRANCO = "⠀"  # rótulo "vazio" para os botões de retrato
 SEGUNDOS_ENTRE_LEITURAS = 2
+SEGUNDOS_COM_TRACOS_TAPADOS = 10  # um balão tapando o painel de traços: mantém a leitura anterior até isso
 PASTA_DO_APP = Path(__file__).resolve().parent
 
 
@@ -205,6 +207,12 @@ def leitura_da_tela(catalogo):
             st.rerun(scope="app")
         return
     voltou_ao_jogo = not st.session_state.get("tft_na_tela", True)
+    anterior = st.session_state.leitura
+    if anterior and tracos_tapados(leitura.tracos, anterior.tracos) \
+            and time.time() - st.session_state.get("tracos_lidos_em", 0) < SEGUNDOS_COM_TRACOS_TAPADOS:
+        leitura.tracos, leitura.tracos_escondidos = anterior.tracos, anterior.tracos_escondidos
+    else:
+        st.session_state.tracos_lidos_em = time.time()
     st.session_state.tft_na_tela = True
     st.session_state.ultima_tela = tela  # para o print de diagnóstico (visao/diagnostico.py)
 
@@ -214,7 +222,6 @@ def leitura_da_tela(catalogo):
         nomes = [compra.campeao.nome for compra in compras]
         st.session_state.compras_recentes = (nomes + st.session_state.compras_recentes)[:6]
 
-    anterior = st.session_state.leitura
     mudou = bool(compras) or anterior is None or voltou_ao_jogo or (
         (leitura.nivel, leitura.xp, leitura.estagio, leitura.ouro, leitura.loja, leitura.itens, leitura.tracos,
          leitura.tracos_escondidos, leitura.bigorna)
