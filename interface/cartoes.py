@@ -139,7 +139,7 @@ ICONE_DA_FRASE = {"montar": "🛠️", "quase": "🟡", "util": "🎯"}
 def html_dos_itens_agora(frases, para_comp):
     """Caixa '🛠️ Itens agora': o que montar com seus componentes e em quem, na comp alvo."""
     linhas = "".join(
-        f'<div class="dica{" urgente" if tipo == "montar" else ""}">{ICONE_DA_FRASE[tipo]} {escape(texto)}</div>'
-        for tipo, texto in frases
+        f'<div class="dica{" urgente" if f.tipo == "montar" else ""}">{ICONE_DA_FRASE[f.tipo]} {escape(f.texto)}</div>'
+        for f in frases
     )
     return f'<div class="dicas itens-agora"><b>🛠️ Itens agora</b> · {escape(para_comp)}{linhas}</div>'

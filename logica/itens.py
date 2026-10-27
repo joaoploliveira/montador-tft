@@ -188,11 +188,21 @@ def melhor_opcao(opcoes, comp, componentes, catalogo):
     return Escolha(opcao, motivo)
 
 
+@dataclass
+class Frase:
+    tipo: str             # montar, quase ou util
+    texto: str
+    item: object          # o item (montar/quase) ou o componente (util)
+    campeao: object = None
+    falta: object = None  # componente que falta (quase)
+
+
 def frases_do_plano(plano):
-    """O plano em frases curtas, para o app e o overlay: [(tipo, texto)], tipo = montar, quase ou util."""
-    frases = [("montar", f"Monte {item.nome} → {campeao.nome}") for item, campeao in plano.montar]
-    frases += [("quase", f"Quase: {item.nome} → {campeao.nome} (falta {falta.nome})")
+    """O plano em frases curtas, para o app e o overlay (que usa também os itens, para os ícones)."""
+    frases = [Frase("montar", f"Monte {item.nome} → {campeao.nome}", item, campeao)
+              for item, campeao in plano.montar]
+    frases += [Frase("quase", f"Quase: {item.nome} → {campeao.nome} (falta {falta.nome})", item, campeao, falta)
                for item, campeao, falta in plano.quase if falta]
     if plano.mais_util:
-        frases.append(("util", f"Carrossel/bigorna: prefira {plano.mais_util.nome}"))
+        frases.append(Frase("util", f"Carrossel/bigorna: prefira {plano.mais_util.nome}", plano.mais_util))
     return frases

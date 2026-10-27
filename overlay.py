@@ -9,31 +9,25 @@ ou à mão:  pythonw overlay.py
 """
 
 import ctypes
+import json
 import sys
 import tkinter as tk
-from tkinter import font as tkfont
 
-from interface.estilo import CORES_CUSTO
+from PIL import ImageTk
+
+from interface import desenho_overlay
 from visao import estado_compartilhado, regioes
 from visao.captura import monitor_do_jogo
 
 ATUALIZAR_A_CADA_MS = 1000
 COR_INVISIVEL = "#010203"      # o que for desta cor fica transparente
-OPACIDADE = 0.93
+OPACIDADE = 0.95
 FOLGA_DA_MOLDURA = 4  # pixels (de 2560x1440) entre a carta da loja e a moldura do overlay
-PAINEL_X, PAINEL_Y, PAINEL_LARGURA = 60, 70, 600  # canto de cima à esquerda, acima dos traços (pixels de 2560x1440)
+PAINEL_X, PAINEL_Y, PAINEL_LARGURA = 60, 70, 640  # canto de cima à esquerda, acima dos traços (pixels de 2560x1440)
 PAINEL_Y_MAXIMO = 330  # daqui para baixo fica o painel de traços, que a leitura da tela precisa enxergar
 # se o painel não couber, vai tirando partes nesta ordem: (mostra traços, mostra itens, quantas dicas)
-VERSOES_DO_PAINEL = [(True, True, 2), (False, True, 2), (False, False, 2), (False, False, 1)]
-FONTE = "Segoe UI"
-
-COR_FUNDO, COR_BORDA, COR_TEXTO, COR_APAGADO = "#14171f", "#e8b941", "#f2f2f2", "#8a93a3"
-COR_DICA = "#7fe3a0"
-COR_FRASE_ITEM = {"montar": "#7fe3a0", "quase": "#e8c95a", "util": "#8fbaf5"}
+VERSOES_DO_PAINEL = [(True, True, 2), (True, True, 1), (False, True, 1), (False, True, 0), (False, False, 1)]
 FRASES_DE_ITEM_NO_OVERLAY = 3
-COR_SELO = {estado_compartilhado.SELO_COMPRE: "#2fb35a", estado_compartilhado.SELO_SOBE: "#e8b941"}
-COR_TRACO = {1: ("#8c5a3c", "#fff"), 2: ("#aebdca", "#17202a"), 3: ("#e8b941", "#2a1d00"), 4: ("#d9b8ff", "#1b1b2a")}
-COR_ITEM = {"Pode montar": ("#2fb35a", "#fff"), "Falta 1 componente": ("#c9a227", "#2a1d00")}
 
 
 # ---------------------------------------------------------------- Windows
@@ -65,127 +59,58 @@ def processo_vivo(pid):
 # ---------------------------------------------------------------- desenho
 
 class Overlay:
+    """Coloca na tela as imagens feitas em interface/desenho_overlay.py."""
+
     def __init__(self, raiz, monitor, pid_do_app=None):
         self.raiz = raiz
         self.pid_do_app = pid_do_app
-        self.escala = monitor["width"] / regioes.REFERENCIA[0]
+        self.pincel = desenho_overlay.Pincel(monitor["width"] / regioes.REFERENCIA[0])
         self.canvas = tk.Canvas(raiz, bg=COR_INVISIVEL, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
-        self.fonte_titulo = tkfont.Font(family=FONTE, size=-self.px(20), weight="bold")
-        self.fonte = tkfont.Font(family=FONTE, size=-self.px(15), weight="bold")
-        self.fonte_pequena = tkfont.Font(family=FONTE, size=-self.px(13))
+        self.imagens = []         # o Tk só mostra a imagem enquanto alguém guarda uma referência a ela
+        self.ultimos_dados = None  # só redesenha quando o app muda alguma coisa
 
     def px(self, valor):
-        """Converte pixels de 2560x1440 para a resolução do monitor."""
-        return round(valor * self.escala)
+        return self.pincel.px(valor)
 
     def atualizar(self):
         if self.pid_do_app and not processo_vivo(self.pid_do_app):
             self.raiz.destroy()
             return
-        self.canvas.delete("all")
         dados = estado_compartilhado.ler()
-        if dados:
-            self.desenhar_loja(dados.get("loja", []))
-            if dados.get("comp"):
-                self.desenhar_painel(dados["comp"], dados.get("dicas", []), dados.get("itens_agora", []))
+        chave = json.dumps(dados, sort_keys=True, ensure_ascii=False)
+        if chave != self.ultimos_dados:
+            self.ultimos_dados = chave
+            self.canvas.delete("all")
+            self.imagens = []
+            if dados:
+                self.desenhar_loja(dados.get("loja", []))
+                if dados.get("comp"):
+                    self.desenhar_painel(dados["comp"], dados.get("dicas", []), dados.get("itens_agora", []))
         self.raiz.attributes("-topmost", True)  # o jogo às vezes "rouba" o topo ao ganhar foco
         self.raiz.after(ATUALIZAR_A_CADA_MS, self.atualizar)
 
+    def _colocar(self, imagem, x, y):
+        foto = ImageTk.PhotoImage(imagem)
+        self.imagens.append(foto)
+        self.canvas.create_image(x, y, image=foto, anchor="nw")
+
     def desenhar_loja(self, selos):
+        """Moldura por fora da carta (mesma folga nos 4 lados), para não tapar o nome que a leitura da tela usa."""
         for selo, (x0, y0, x1, y1) in zip(selos, regioes.CARTAS_DA_LOJA):
-            if not selo:
-                continue
-            cor = COR_SELO[selo]
-            # moldura por fora da carta (mesma folga nos 4 lados), para não tapar o nome que a leitura da tela usa
-            f = FOLGA_DA_MOLDURA
-            self.canvas.create_rectangle(self.px(x0 - f), self.px(y0 - f), self.px(x1 + f), self.px(y1 + f),
-                                         outline=cor, width=self.px(5))
-            self._chip(self.px(x0 + 8), self.px(y0 + 8), selo, cor, "#fff" if cor == "#2fb35a" else "#2a1d00",
-                       marca="loja")
+            if selo:
+                imagem, dx, dy = desenho_overlay.marcacao_da_loja(selo, x1 - x0, y1 - y0, FOLGA_DA_MOLDURA, self.pincel)
+                self._colocar(imagem, self.px(x0) + dx, self.px(y0) + dy)
 
     def desenhar_painel(self, comp, dicas=(), itens_agora=()):
-        """Desenha a versão mais completa do painel que caiba acima do painel de traços do jogo."""
+        """Coloca a versão mais completa do painel que caiba acima do painel de traços do jogo."""
+        itens_agora = list(itens_agora)[:FRASES_DE_ITEM_NO_OVERLAY]
         for com_tracos, com_itens, quantas_dicas in VERSOES_DO_PAINEL:
-            self.canvas.delete("painel")
-            baixo = self._painel(comp, list(dicas)[:quantas_dicas], com_tracos, com_itens,
-                                 list(itens_agora)[:FRASES_DE_ITEM_NO_OVERLAY])
-            if baixo <= self.px(PAINEL_Y_MAXIMO):
-                return
-
-    def _painel(self, comp, dicas, com_tracos, com_itens, itens_agora=()):
-        """Desenha o painel e devolve onde ele termina (y de baixo)."""
-        x0, y0 = self.px(PAINEL_X), self.px(PAINEL_Y)
-        x1 = x0 + self.px(PAINEL_LARGURA)
-        margem = self.px(12)
-        fundo = self.canvas.create_rectangle(x0, y0, x1, y0, fill=COR_FUNDO, outline=COR_BORDA, width=self.px(2),
-                                             tags="painel")
-        x, y = x0 + margem, y0 + margem
-
-        titulo = self.canvas.create_text(x, y, text=comp["nome"], anchor="nw", fill=COR_TEXTO,
-                                         font=self.fonte_titulo, width=x1 - x - margem, tags="painel")
-        y = self.canvas.bbox(titulo)[3] + self.px(2)  # o nome pode quebrar em duas linhas
-        self.canvas.create_text(x, y, anchor="nw", fill=COR_APAGADO, font=self.fonte_pequena, tags="painel",
-                                text=f"{comp['origem']} · você tem {comp['tem']}/{comp['total']}")
-        y += self.px(24)
-
-        chips = []
-        for campeao in comp["campeoes"]:
-            cor = CORES_CUSTO.get(campeao["custo"], "#888")
-            if campeao["estrelas"]:
-                chips.append((f"{campeao['nome']} {'★' * campeao['estrelas']}", cor, "#fff", None))
-            else:
-                chips.append((campeao["nome"], "#262b36", COR_APAGADO, cor))
-        y = self._linha_de_chips(chips, x, x1 - margem, y)
-
-        tracos = [(t["texto"], *COR_TRACO.get(t["estilo"], ("#666", "#fff")), None) for t in comp["tracos"]]
-        if tracos and com_tracos:
-            y = self._linha_de_chips(tracos, x, x1 - margem, y + self.px(4), fonte=self.fonte_pequena)
-
-        if itens_agora and com_itens:  # com componentes: o que montar e em quem
-            for frase in itens_agora:
-                texto = self.canvas.create_text(x, y + self.px(4), anchor="nw", font=self.fonte_pequena,
-                                                fill=COR_FRASE_ITEM.get(frase["tipo"], COR_TEXTO),
-                                                text=frase["texto"], width=x1 - x - margem, tags="painel")
-                y = self.canvas.bbox(texto)[3] + self.px(2)
-        elif comp["itens"] and com_itens:  # sem componentes: a build do carry
-            self.canvas.create_text(x, y + self.px(4), anchor="nw", fill=COR_APAGADO, font=self.fonte_pequena,
-                                    text=f"Itens para {comp['carry']}:", tags="painel")
-            itens = [(i["nome"], *COR_ITEM.get(i["status"], ("#262b36", COR_APAGADO)), None) for i in comp["itens"]]
-            y = self._linha_de_chips(itens, x, x1 - margem, y + self.px(26), fonte=self.fonte_pequena)
-
-        for dica in dicas:  # dicas do momento: subir de nível, rolar, juros
-            texto = self.canvas.create_text(x, y + self.px(4), anchor="nw", fill=COR_DICA, font=self.fonte_pequena,
-                                            text=f"• {dica}", width=x1 - x - margem, tags="painel")
-            y = self.canvas.bbox(texto)[3] + self.px(2)
-
-        baixo = y + margem - self.px(6)
-        self.canvas.coords(fundo, x0, y0, x1, baixo)
-        return baixo
-
-    def _chip(self, x, y, texto, fundo, cor_texto, borda=None, fonte=None, marca="painel"):
-        """Etiqueta com fundo. Devolve (largura, altura). `marca` agrupa o desenho para apagar junto."""
-        fonte = fonte or self.fonte
-        folga_x, folga_y = self.px(8), self.px(3)
-        largura = fonte.measure(texto) + 2 * folga_x
-        altura = fonte.metrics("linespace") + 2 * folga_y
-        self.canvas.create_rectangle(x, y, x + largura, y + altura, fill=fundo, outline=borda or fundo,
-                                     width=self.px(2), tags=marca)
-        self.canvas.create_text(x + folga_x, y + folga_y, text=texto, anchor="nw", fill=cor_texto, font=fonte,
-                                tags=marca)
-        return largura, altura
-
-    def _linha_de_chips(self, chips, x_inicio, x_fim, y, fonte=None):
-        """Coloca as etiquetas lado a lado, quebrando a linha quando não cabem. Devolve o y de baixo."""
-        espaco = self.px(6)
-        x, altura = x_inicio, 0
-        for texto, fundo, cor_texto, borda in chips:
-            largura = (fonte or self.fonte).measure(texto) + 2 * self.px(8)
-            if x > x_inicio and x + largura > x_fim:
-                x, y = x_inicio, y + altura + espaco
-            largura, altura = self._chip(x, y, texto, fundo, cor_texto, borda, fonte)
-            x += largura + espaco
-        return y + altura + espaco
+            imagem = desenho_overlay.painel(comp, list(dicas)[:quantas_dicas], itens_agora, self.pincel,
+                                            PAINEL_LARGURA, com_tracos, com_itens)
+            if self.px(PAINEL_Y) + imagem.height <= self.px(PAINEL_Y_MAXIMO):
+                break
+        self._colocar(imagem, self.px(PAINEL_X), self.px(PAINEL_Y))
 
 
 def main():

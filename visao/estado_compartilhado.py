@@ -36,9 +36,10 @@ DICAS_NO_OVERLAY = 2
 
 def montar(comp, situacao, selos, catalogo, componentes, dicas=(), frases_dos_itens=()):
     """O que o overlay mostra: a comp alvo (a escolhida no app, ou a primeira da lista), os selos da loja,
-    as dicas e o plano de itens (o que montar e em quem; ver logica/itens.py:frases_do_plano)."""
+    as dicas e o plano de itens (o que montar e em quem; ver logica/itens.py:frases_do_plano).
+    Campeões e itens levam a `chave` do ícone, para o overlay desenhar as imagens."""
     dados = {"loja": selos, "comp": None, "dicas": [d.texto for d in list(dicas)[:DICAS_NO_OVERLAY]],
-             "itens_agora": [{"tipo": tipo, "texto": texto} for tipo, texto in frases_dos_itens]}
+             "itens_agora": [_frase_simples(f) for f in frases_dos_itens]}
     if comp is None:
         return dados
     carry = next(iter(modulo_itens.carregadores(comp, 1)), None)
@@ -49,13 +50,32 @@ def montar(comp, situacao, selos, catalogo, componentes, dicas=(), frases_dos_it
         "tem": len(comp.tem),
         "total": len(comp.campeoes),
         "campeoes": [
-            {"nome": c.nome, "custo": c.custo, "estrelas": situacao.unidades.get(c.id, 0)} for c in comp.campeoes
+            {"nome": c.nome, "custo": c.custo, "chave": c.chave, "estrelas": situacao.unidades.get(c.id, 0)}
+            for c in comp.campeoes
         ],
-        "tracos": [{"texto": t.texto(), "estilo": t.estilo} for t in comp.tracos if t.ativo],
+        # traços de verdade primeiro; os de um campeão só (sempre ativos) vão para o fim
+        "tracos": [{"texto": t.texto(), "estilo": t.estilo}
+                   for t in sorted(comp.tracos, key=lambda t: t.traco.unico) if t.ativo],
         "carry": carry.nome if carry else "",
-        "itens": [{"nome": s.item.nome, "status": s.status} for s in itens],
+        "carry_chave": carry.chave if carry else "",
+        "itens": [{"nome": s.item.nome, "status": s.status, "chave": s.item.chave} for s in itens],
     }
     return dados
+
+
+def _frase_simples(frase):
+    """Uma frase do plano de itens só com textos e chaves de ícone."""
+    return {
+        "tipo": frase.tipo,
+        "texto": frase.texto,
+        "item": frase.item.nome,
+        "item_chave": frase.item.chave,
+        "componentes": list(getattr(frase.item, "componentes", ())) if frase.tipo == "montar" else [],
+        "campeao": frase.campeao.nome if frase.campeao else "",
+        "campeao_chave": frase.campeao.chave if frase.campeao else "",
+        "falta": frase.falta.nome if frase.falta else "",
+        "falta_chave": frase.falta.chave if frase.falta else "",
+    }
 
 
 def salvar(dados):
