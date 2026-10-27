@@ -131,3 +131,15 @@ def html_das_dicas(dicas):
         f'<div class="dica{" urgente" if d.urgente else ""}">{d.icone} {escape(d.texto)}</div>' for d in dicas
     )
     return f'<div class="dicas"><b>💡 Agora</b>{linhas}</div>'
+
+
+ICONE_DA_FRASE = {"montar": "🛠️", "quase": "🟡", "util": "🎯"}
+
+
+def html_dos_itens_agora(frases, para_comp):
+    """Caixa '🛠️ Itens agora': o que montar com seus componentes e em quem, na comp alvo."""
+    linhas = "".join(
+        f'<div class="dica{" urgente" if tipo == "montar" else ""}">{ICONE_DA_FRASE[tipo]} {escape(texto)}</div>'
+        for tipo, texto in frases
+    )
+    return f'<div class="dicas itens-agora"><b>🛠️ Itens agora</b> · {escape(para_comp)}{linhas}</div>'

@@ -87,6 +87,7 @@ CSS_GERAL = """
          background: rgba(47,179,90,.07); }
 .dica { font-size: .88rem; margin-top: 5px; }
 .dica.urgente { font-weight: 700; }
+.dicas.itens-agora { border-color: rgba(232,185,65,.45); background: rgba(232,185,65,.07); }
 
 /* ---------- loja agora (leitura da tela) ---------- */
 .loja-agora { border: 1px solid rgba(232,185,65,.45); border-radius: 12px; padding: 10px 14px;

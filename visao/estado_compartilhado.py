@@ -34,9 +34,11 @@ def selos_da_loja(loja, comps_alvo, situacao):
 DICAS_NO_OVERLAY = 2
 
 
-def montar(comp, situacao, selos, catalogo, componentes, dicas=()):
-    """O que o overlay mostra: a comp alvo (a escolhida no app, ou a primeira da lista), os selos da loja e as dicas."""
-    dados = {"loja": selos, "comp": None, "dicas": [d.texto for d in list(dicas)[:DICAS_NO_OVERLAY]]}
+def montar(comp, situacao, selos, catalogo, componentes, dicas=(), frases_dos_itens=()):
+    """O que o overlay mostra: a comp alvo (a escolhida no app, ou a primeira da lista), os selos da loja,
+    as dicas e o plano de itens (o que montar e em quem; ver logica/itens.py:frases_do_plano)."""
+    dados = {"loja": selos, "comp": None, "dicas": [d.texto for d in list(dicas)[:DICAS_NO_OVERLAY]],
+             "itens_agora": [{"tipo": tipo, "texto": texto} for tipo, texto in frases_dos_itens]}
     if comp is None:
         return dados
     carry = next(iter(modulo_itens.carregadores(comp, 1)), None)

@@ -15,7 +15,7 @@ import streamlit as st
 import atualizar
 from dados import banco, riot
 from interface import estilo
-from interface.cartoes import ROTULO_ORIGEM, html_da_comp, html_da_loja, html_das_dicas
+from interface.cartoes import ROTULO_ORIGEM, html_da_comp, html_da_loja, html_das_dicas, html_dos_itens_agora
 from logica import catalogo as modulo_catalogo
 from logica import itens as modulo_itens
 from logica import dicas as modulo_dicas
@@ -388,13 +388,18 @@ def coluna_comps(situacao, catalogo, componentes):
         dicas_agora = modulo_dicas.dicas(leitura, plano, catalogo, faltando=alvo.faltam, tres_estrelas_feitos=feitos)
         if dicas_agora:
             st.html(html_das_dicas(dicas_agora))
+    frases_dos_itens = []
+    if alvo and componentes:
+        frases_dos_itens = modulo_itens.frases_do_plano(modulo_itens.plano_de_itens(alvo, componentes, catalogo))
+        if frases_dos_itens:
+            st.html(html_dos_itens_agora(frases_dos_itens, alvo.nome))
     selos = []
     if leitura and any(leitura.loja):
         # a loja marca só os campeões da comp alvo (misturar várias comps mandava comprar campeão de outro time)
         selos = estado_compartilhado.selos_da_loja(leitura.loja, [alvo] if alvo else [], situacao)
         st.html(html_da_loja(leitura.loja, selos))
     estado_compartilhado.salvar(
-        estado_compartilhado.montar(alvo, situacao, selos, catalogo, componentes, dicas_agora)
+        estado_compartilhado.montar(alvo, situacao, selos, catalogo, componentes, dicas_agora, frases_dos_itens)
     )
 
     if not comps:

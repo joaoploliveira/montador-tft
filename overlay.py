@@ -29,6 +29,8 @@ FONTE = "Segoe UI"
 
 COR_FUNDO, COR_BORDA, COR_TEXTO, COR_APAGADO = "#14171f", "#e8b941", "#f2f2f2", "#8a93a3"
 COR_DICA = "#7fe3a0"
+COR_FRASE_ITEM = {"montar": "#7fe3a0", "quase": "#e8c95a", "util": "#8fbaf5"}
+FRASES_DE_ITEM_NO_OVERLAY = 3
 COR_SELO = {estado_compartilhado.SELO_COMPRE: "#2fb35a", estado_compartilhado.SELO_SOBE: "#e8b941"}
 COR_TRACO = {1: ("#8c5a3c", "#fff"), 2: ("#aebdca", "#17202a"), 3: ("#e8b941", "#2a1d00"), 4: ("#d9b8ff", "#1b1b2a")}
 COR_ITEM = {"Pode montar": ("#2fb35a", "#fff"), "Falta 1 componente": ("#c9a227", "#2a1d00")}
@@ -86,7 +88,7 @@ class Overlay:
         if dados:
             self.desenhar_loja(dados.get("loja", []))
             if dados.get("comp"):
-                self.desenhar_painel(dados["comp"], dados.get("dicas", []))
+                self.desenhar_painel(dados["comp"], dados.get("dicas", []), dados.get("itens_agora", []))
         self.raiz.attributes("-topmost", True)  # o jogo às vezes "rouba" o topo ao ganhar foco
         self.raiz.after(ATUALIZAR_A_CADA_MS, self.atualizar)
 
@@ -102,15 +104,16 @@ class Overlay:
             self._chip(self.px(x0 + 8), self.px(y0 + 8), selo, cor, "#fff" if cor == "#2fb35a" else "#2a1d00",
                        marca="loja")
 
-    def desenhar_painel(self, comp, dicas=()):
+    def desenhar_painel(self, comp, dicas=(), itens_agora=()):
         """Desenha a versão mais completa do painel que caiba acima do painel de traços do jogo."""
         for com_tracos, com_itens, quantas_dicas in VERSOES_DO_PAINEL:
             self.canvas.delete("painel")
-            baixo = self._painel(comp, list(dicas)[:quantas_dicas], com_tracos, com_itens)
+            baixo = self._painel(comp, list(dicas)[:quantas_dicas], com_tracos, com_itens,
+                                 list(itens_agora)[:FRASES_DE_ITEM_NO_OVERLAY])
             if baixo <= self.px(PAINEL_Y_MAXIMO):
                 return
 
-    def _painel(self, comp, dicas, com_tracos, com_itens):
+    def _painel(self, comp, dicas, com_tracos, com_itens, itens_agora=()):
         """Desenha o painel e devolve onde ele termina (y de baixo)."""
         x0, y0 = self.px(PAINEL_X), self.px(PAINEL_Y)
         x1 = x0 + self.px(PAINEL_LARGURA)
@@ -139,7 +142,13 @@ class Overlay:
         if tracos and com_tracos:
             y = self._linha_de_chips(tracos, x, x1 - margem, y + self.px(4), fonte=self.fonte_pequena)
 
-        if comp["itens"] and com_itens:
+        if itens_agora and com_itens:  # com componentes: o que montar e em quem
+            for frase in itens_agora:
+                texto = self.canvas.create_text(x, y + self.px(4), anchor="nw", font=self.fonte_pequena,
+                                                fill=COR_FRASE_ITEM.get(frase["tipo"], COR_TEXTO),
+                                                text=frase["texto"], width=x1 - x - margem, tags="painel")
+                y = self.canvas.bbox(texto)[3] + self.px(2)
+        elif comp["itens"] and com_itens:  # sem componentes: a build do carry
             self.canvas.create_text(x, y + self.px(4), anchor="nw", fill=COR_APAGADO, font=self.fonte_pequena,
                                     text=f"Itens para {comp['carry']}:", tags="painel")
             itens = [(i["nome"], *COR_ITEM.get(i["status"], ("#262b36", COR_APAGADO)), None) for i in comp["itens"]]
