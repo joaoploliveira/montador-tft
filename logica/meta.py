@@ -32,7 +32,18 @@ def _identidade(tabuleiro, catalogo):
     return carry.campeao.id, principais
 
 
-def _build_do_carry(do_grupo, carry):
+def nome_da_comp(tabuleiro, catalogo):
+    """O nome da comp de um tabuleiro, igual ao das comps meta ('Carry — Traço + Traço'), ou None."""
+    identidade = _identidade(tabuleiro, catalogo)
+    if not identidade:
+        return None
+    id_carry, ids_tracos = identidade
+    nomes_tracos = " + ".join(catalogo.tracos[i].nome for i in ids_tracos)
+    carry = catalogo.campeoes[id_carry]
+    return f"{carry.nome} — {nomes_tracos}" if nomes_tracos else carry.nome
+
+
+def build_do_carry(do_grupo, carry):
     """A build de 3 itens que o carry mais usou nessa comp (nomes dos itens)."""
     builds = Counter()
     for tabuleiro in do_grupo:
@@ -73,7 +84,7 @@ def comps_meta(situacao, catalogo):
             "top4": desempenho.top4,
             "vitoria": desempenho.vitorias,
             "carry": carry.nome,
-            "itens_do_carry": _build_do_carry(do_grupo, carry),
+            "itens_do_carry": build_do_carry(do_grupo, carry),
             "essenciais": [catalogo.campeoes[i].nome for i in frequentes if frequencia[i] / jogos >= ESSENCIAL],
             "plano": taticas.plano_da_comp(do_grupo),
         }

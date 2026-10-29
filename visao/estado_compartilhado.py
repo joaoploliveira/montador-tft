@@ -36,13 +36,14 @@ DICAS_NO_OVERLAY = 2
 
 
 def montar(comp, situacao, selos, catalogo, componentes, dicas=(), frases_dos_itens=(), provaveis=(),
-           bigorna=None, fora=None, estrelas_lidas=None, fora_do_jogo=False):
+           bigorna=None, fora=None, trocas=(), estrelas_lidas=None, fora_do_jogo=False):
     """O que o overlay mostra: a comp alvo (a escolhida no app, ou a primeira da lista), os selos da loja,
     as dicas e o plano de itens (o que montar e em quem; ver logica/itens.py:frases_do_plano).
     Campeões e itens levam a `chave` do ícone, para o overlay desenhar as imagens.
     `provaveis`: ids que provavelmente estão no tabuleiro (deduzidos dos traços lidos).
     `bigorna`: com uma bigorna aberta, {"item", "motivo", "caixa"} da opção que vale pegar.
     `fora`: quem mais está em campo, fora da comp (montador.ForaDaComp).
+    `trocas`: o que o modelo acha de cada um deles (aprendizado.Troca).
     `estrelas_lidas`: {id: estrelas} de quem o painel de dano mostrou em campo (confirmado, não deduzido).
     `fora_do_jogo`: a leitura está ligada mas o TFT não está na tela (ex.: no cliente): o overlay some."""
     dados = {"loja": selos, "comp": None, "dicas": [d.texto for d in list(dicas)[:DICAS_NO_OVERLAY]],
@@ -70,7 +71,7 @@ def montar(comp, situacao, selos, catalogo, componentes, dicas=(), frases_dos_it
         "carry": carry.nome if carry else "",
         "carry_chave": carry.chave if carry else "",
         "itens": [{"nome": s.item.nome, "status": s.status, "chave": s.item.chave} for s in itens],
-        "em_campo": _em_campo(fora, estrelas_lidas),
+        "em_campo": _em_campo(fora, trocas, estrelas_lidas),
     }
     return dados
 
@@ -78,12 +79,24 @@ def montar(comp, situacao, selos, catalogo, componentes, dicas=(), frases_dos_it
 PODE_SER_NO_OVERLAY = 6
 
 
-def _em_campo(fora, estrelas_lidas):
-    """Os de fora da comp que estão em campo, e um "?" por vaga que não deu para saber quem é."""
+def _troca_simples(troca):
+    if not troca:
+        return None
+    return {"fica": troca.fica, "no_lugar_de": troca.no_lugar_de.nome, "antes": round(troca.antes, 1),
+            "depois": round(troca.depois, 1), "tabuleiros": troca.tabuleiros, "experimental": troca.experimental}
+
+
+def _em_campo(fora, trocas=(), estrelas_lidas=None):
+    """Os de fora da comp que estão em campo, e um "?" por vaga que não deu para saber quem é.
+    Com o modelo, cada um leva a `troca`: se fica no time final (e no lugar de quem) ou se é rotação.
+    Quem o painel de dano mostrou (`estrelas_lidas`) vai confirmado e com as estrelas."""
     if not fora:
         return []
+    estrelas_lidas = estrelas_lidas or {}
+    por_campeao = {t.campeao.id: t for t in trocas}
     em_campo = [{"nome": c.nome, "custo": c.custo, "chave": c.chave, "estrelas": estrelas_lidas.get(c.id, 0),
-                 "fora_da_comp": True, "confirmado": c.id in estrelas_lidas}
+                 "fora_da_comp": True, "confirmado": c.id in estrelas_lidas,
+                 "troca": _troca_simples(por_campeao.get(c.id))}
                 for c in fora.certos]
     if fora.vagas_em_duvida:
         nomes = [c.nome for c in fora.pode_ser]

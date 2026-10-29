@@ -220,7 +220,9 @@ def _retratos(imagem, desenho, campeoes, em_campo, pincel, esquerda, direita, y,
             _retrato_em_duvida(desenho, x, y, lado, pincel)
         else:
             _retrato(imagem, desenho, campeao, True, x, y, lado, pincel)
-            if campeao["estrelas"]:  # lido no painel de dano
+            if campeao.get("troca"):
+                _selo_da_troca(imagem, campeao["troca"], x + lado / 2, y + lado - px(3), pincel)
+            elif campeao["estrelas"]:  # lido no painel de dano
                 _estrelas(imagem, campeao["estrelas"], x + lado / 2, y + lado - px(3), estrelas_fonte, pincel)
         areas.append((x, y, x + lado, y + lado, campeao))
         x += lado + espaco
@@ -234,6 +236,24 @@ def _retrato(imagem, desenho, campeao, colorido, x, y, lado, pincel):
                               outline=cor, width=borda)
     foto = pincel.icone("campeao", campeao.get("chave"), (lado - 2 * borda) / pincel.escala, apagado=not colorido)
     imagem.alpha_composite(foto, (x + borda, y + borda))
+
+
+COR_FICA, COR_TROCA = (47, 179, 90, 255), (240, 180, 41, 255)
+
+
+def _selo_da_troca(imagem, troca, x_meio, y_baixo, pincel):
+    """Pílula 'FICA' (verde) ou 'TROCA' (amarela) dentro da foto, no mesmo lugar das estrelas.
+    Com '?' se o teste das trocas não passou (experimental)."""
+    px = pincel.px
+    texto, cor = ("FICA", COR_FICA) if troca["fica"] else ("TROCA", COR_TROCA)
+    texto += "?" if troca.get("experimental") else ""
+    fonte = pincel.fonte(9, "negrito")
+    largura, altura = round(fonte.getlength(texto)) + px(8), px(14)
+    pilula = Image.new("RGBA", (largura, altura), (0, 0, 0, 0))
+    desenho = ImageDraw.Draw(pilula)
+    desenho.rounded_rectangle((0, 0, largura - 1, altura - 1), altura // 2, fill=FUNDO, outline=cor, width=px(1))
+    desenho.text((largura / 2, altura / 2), texto, font=fonte, fill=cor, anchor="mm")
+    imagem.alpha_composite(pilula, (round(x_meio - largura / 2), round(y_baixo - altura - px(2))))
 
 
 def _retrato_em_duvida(desenho, x, y, lado, pincel):
@@ -368,6 +388,13 @@ def etiqueta_do_campeao(campeao, pincel):
         quantos = campeao.get("quantos", 1)
         nome = "Em campo, sem nome certo" if quantos == 1 else f"{quantos} em campo, sem nome certo"
         situacao = "pode ser: " + ", ".join(campeao["pode_ser"])
+    elif campeao.get("troca"):
+        troca = campeao["troca"]
+        previsao = f"{troca['antes']:.1f} → {troca['depois']:.1f}".replace(".", ",")
+        situacao = (f"FICA no lugar de {troca['no_lugar_de']} · {previsao}" if troca["fica"] else
+                    f"segure até achar {troca['no_lugar_de']} · {previsao}")
+        situacao += f" ({troca['tabuleiros']} tabuleiros do alto elo)"
+        situacao += " · experimental" if troca.get("experimental") else ""
     elif campeao.get("fora_da_comp") and campeao.get("confirmado"):
         estrelas, situacao = "★" * campeao["estrelas"], "em campo · fora da comp"
     elif campeao.get("fora_da_comp"):

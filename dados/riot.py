@@ -11,8 +11,11 @@ import json
 import os
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 import requests
+
+from dados import banco
 
 ARQUIVO_ENV = Path(__file__).parent.parent / ".env"
 PLATAFORMA = "br1"         # servidor do Brasil (ranking, jogadores)
@@ -88,6 +91,17 @@ class ClienteRiot:
                 puuids.append(puuid)
         return puuids
 
+    def puuid_do_riot_id(self, riot_id):
+        """'nome#tag' -> puuid (a conta da Riot fica na rota regional, não no servidor do BR)."""
+        nome, _, tag = riot_id.strip().partition("#")
+        if not nome or not tag:
+            raise ErroRiot("Riot ID no formato nome#tag (ex.: jogador#br1).")
+        conta = self._get(f"https://{REGIAO}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/"
+                          f"{quote(nome)}/{quote(tag)}")
+        if not conta:
+            raise ErroRiot(f"A Riot não achou o Riot ID {riot_id}.")
+        return conta["puuid"]
+
     def ids_partidas(self, puuid, quantidade):
         return self._get(
             f"https://{REGIAO}.api.riotgames.com/tft/match/v1/matches/by-puuid/{puuid}/ids",
@@ -98,13 +112,14 @@ class ClienteRiot:
         return self._get(f"https://{REGIAO}.api.riotgames.com/tft/match/v1/matches/{match_id}")
 
 
-def _salvar_partida(conexao, partida):
+def _salvar_partida(conexao, partida, origem=banco.ORIGEM_ALTO_ELO):
     info = partida["info"]
     match_id = partida["metadata"]["match_id"]
     conexao.execute(
-        "INSERT OR REPLACE INTO partidas VALUES (?,?,?,?,?,?)",
+        "INSERT OR REPLACE INTO partidas (match_id, data, versao, set_numero, fila, duracao, origem) "
+        "VALUES (?,?,?,?,?,?,?)",
         (match_id, info.get("game_datetime"), info.get("game_version"),
-         info.get("tft_set_number"), info.get("queue_id"), info.get("game_length")),
+         info.get("tft_set_number"), info.get("queue_id"), info.get("game_length"), origem),
     )
     for jogador in info.get("participants", []):
         unidades = [
@@ -151,4 +166,26 @@ def coletar_partidas(conexao, chave, jogadores=60, partidas_por_jogador=20, prog
         partida = cliente.partida(match_id)
         if partida:  # salva todas (para não baixar de novo); a análise usa só as ranqueadas
             _salvar_partida(conexao, partida)
+    return len(novas)
+
+
+def coletar_minhas_partidas(conexao, chave, riot_id, quantidade=30, progresso=print):
+    """Baixa as suas partidas mais recentes (as que já estão no banco não são baixadas de novo).
+
+    Junta a conta (Riot ID e puuid) às suas contas no banco, para o app saber quais tabuleiros são seus.
+    Devolve quantas partidas novas foram salvas.
+    """
+    cliente = ClienteRiot(chave)
+    progresso(f"Procurando {riot_id}...")
+    puuid = cliente.puuid_do_riot_id(riot_id)
+    banco.salvar_conta(conexao, riot_id.strip(), puuid)
+    conexao.commit()
+
+    ja_salvas = {linha[0] for linha in conexao.execute("SELECT match_id FROM partidas")}
+    novas = [m for m in cliente.ids_partidas(puuid, quantidade) if m not in ja_salvas]
+    for numero, match_id in enumerate(novas, start=1):
+        progresso(f"{riot_id}: baixando partida {numero}/{len(novas)}...")
+        partida = cliente.partida(match_id)
+        if partida:
+            _salvar_partida(conexao, partida, origem=banco.ORIGEM_MINHAS)
     return len(novas)

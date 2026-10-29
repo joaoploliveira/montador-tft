@@ -8,8 +8,9 @@ from logica import itens as modulo_itens
 from logica import montador
 from visao import estado_compartilhado
 
-CLASSE_ORIGEM = {"Algoritmo": "origem-algoritmo", "Meta": "origem-meta", "Minhas comps": "origem-minhas"}
-ROTULO_ORIGEM = {"Algoritmo": "Para você", "Meta": "🏆 Meta", "Minhas comps": "📌 Minha"}
+CLASSE_ORIGEM = {"Algoritmo": "origem-algoritmo", "Meta": "origem-meta", "Minhas comps": "origem-minhas",
+                 "Suas comps": "origem-suas"}
+ROTULO_ORIGEM = {"Algoritmo": "Para você", "Meta": "🏆 Meta", "Minhas comps": "📌 Minha", "Suas comps": "🧠 Sua"}
 CLASSE_STATUS = {"Pode montar": "pode", "Falta 1 componente": "falta1"}
 
 
@@ -76,6 +77,15 @@ def _numeros(comp):
     )
 
 
+def _previsao(previsao):
+    """O que o modelo do alto elo acha da comp montada por completo (aba Aprendizado)."""
+    if not previsao:
+        return ""
+    colocacao, chance = previsao
+    colocacao = f"{colocacao:.1f}".replace(".", ",")
+    return f'<div class="numeros previsao">🤖 Modelo: colocação <b>~{colocacao}</b> · top 4 em <b>{chance:.0%}</b></div>'
+
+
 def _plano(comp):
     """Como jogar a comp (só comps meta: vem dos tabuleiros de alto elo)."""
     plano = comp.estatisticas.get("plano")
@@ -86,7 +96,7 @@ def _plano(comp):
     return f'<div class="plano">🧭 <b>{escape(plano.estilo)}</b> · {escape(plano.texto)}{centrais}</div>'
 
 
-def html_da_comp(comp, situacao, catalogo, componentes):
+def html_da_comp(comp, situacao, catalogo, componentes, previsao=None):
     chances = montador.chance_dos_que_faltam(comp, situacao, catalogo)
     retratos = "".join(_retrato(c, situacao, chances.get(c.id)) for c in comp.campeoes)
     return (
@@ -97,6 +107,7 @@ def html_da_comp(comp, situacao, catalogo, componentes):
         f'<span class="tem">Você tem {len(comp.tem)}/{len(comp.campeoes)}</span>'
         "</div>"
         f"{_numeros(comp)}"
+        f"{_previsao(previsao)}"
         f"{_plano(comp)}"
         f'<div class="retratos">{retratos}</div>'
         f"{_tracos(comp)}"

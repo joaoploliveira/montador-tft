@@ -8,6 +8,7 @@ Os ids de tudo são os nomes internos da Riot (ex.: 'DA_18_LeBlanc', 'DA_18_Sola
 'DA_InfinityEdge'), os mesmos que aparecem nas partidas da API. Exemplos de consulta no README.
 """
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -48,12 +49,25 @@ CREATE TABLE IF NOT EXISTS participacoes (
 
 TABELAS_DE_JOGO = ["campeoes", "tracos", "traco_niveis", "campeao_traco", "itens", "augments"]
 
+# de onde veio a partida: dos jogadores de alto elo (base das estatísticas) ou do seu histórico.
+# Separar importa: os outros 7 jogadores dos seus lobbies não são alto elo.
+ORIGEM_ALTO_ELO, ORIGEM_MINHAS = "alto_elo", "minhas"
+
 
 def conectar(caminho=None):
     conexao = sqlite3.connect(caminho or CAMINHO_DB)
     conexao.row_factory = sqlite3.Row
     conexao.executescript(ESQUEMA)
+    _atualizar_esquema(conexao)
     return conexao
+
+
+def _atualizar_esquema(conexao):
+    """Bancos de versões anteriores não têm a coluna `origem`: tudo que já existe é alto elo."""
+    colunas = {linha[1] for linha in conexao.execute("PRAGMA table_info(partidas)")}
+    if "origem" not in colunas:
+        conexao.execute(f"ALTER TABLE partidas ADD COLUMN origem TEXT DEFAULT '{ORIGEM_ALTO_ELO}'")
+        conexao.commit()
 
 
 def metadado(conexao, chave, padrao=None):
@@ -63,6 +77,42 @@ def metadado(conexao, chave, padrao=None):
 
 def salvar_metadado(conexao, chave, valor):
     conexao.execute("INSERT OR REPLACE INTO metadados VALUES (?, ?)", (chave, str(valor)))
+
+
+def minhas_contas(conexao):
+    """{Riot ID: puuid} das suas contas (aba Aprendizado). Lê também o formato antigo, de uma conta só."""
+    contas = json.loads(metadado(conexao, "minhas_contas", "{}"))
+    riot_id_antigo, puuid_antigo = metadado(conexao, "riot_id"), metadado(conexao, "meu_puuid")
+    if riot_id_antigo and puuid_antigo and puuid_antigo not in contas.values():
+        contas[riot_id_antigo] = puuid_antigo
+    return contas
+
+
+def salvar_conta(conexao, riot_id, puuid):
+    contas = {r: p for r, p in minhas_contas(conexao).items() if p != puuid}  # Riot ID novo da mesma conta
+    contas[riot_id] = puuid
+    salvar_metadado(conexao, "minhas_contas", json.dumps(contas, ensure_ascii=False))
+
+
+def nomes_das_comps(conexao):
+    """Os nomes que você deu às suas comps: [{"nome", "campeoes": [ids]}] (logica/suas_comps.py)."""
+    return json.loads(metadado(conexao, "nomes_das_comps", "[]"))
+
+
+def salvar_nome_da_comp(conexao, nome, ids_dos_campeoes):
+    """Dá `nome` à comp com esses campeões. Um nome que já existia passa a valer para esta comp."""
+    nomes = [n for n in nomes_das_comps(conexao) if n["nome"] != nome]
+    nomes.append({"nome": nome, "campeoes": sorted(ids_dos_campeoes)})
+    salvar_metadado(conexao, "nomes_das_comps", json.dumps(nomes, ensure_ascii=False))
+
+
+def datas_das_partidas(conexao, match_ids):
+    """{match_id: fim da partida em milissegundos} (é o 'data' que a API da Riot manda)."""
+    if not match_ids:
+        return {}
+    linhas = conexao.execute(f"SELECT match_id, data FROM partidas WHERE match_id IN ({','.join('?' * len(match_ids))})",
+                             list(match_ids)).fetchall()
+    return {match_id: data for match_id, data in linhas}
 
 
 def importar_partidas_antigas(conexao, caminho_antigo):

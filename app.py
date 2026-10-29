@@ -3,6 +3,7 @@
 Este arquivo só monta a página. O visual (HTML/CSS) fica em interface/ e as contas em logica/.
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -21,9 +22,9 @@ from interface.cartoes import (ROTULO_ORIGEM, html_da_bigorna, html_da_comp, htm
 from logica import catalogo as modulo_catalogo
 from logica import itens as modulo_itens
 from logica import dicas as modulo_dicas
-from logica import manuais, meta, montador, taticas
+from logica import aprendizado, linha_do_tempo, manuais, meta, meu_desempenho, montador, suas_comps, taticas
 from logica.loja import chance_na_loja
-from visao import acompanhamento, estado_compartilhado
+from visao import acompanhamento, estado_compartilhado, gravacao
 from visao.captura import capturar_tela
 from visao import diagnostico
 from visao.leitor import Leitor, tracos_tapados
@@ -31,7 +32,7 @@ from visao.leitor import Leitor, tracos_tapados
 st.set_page_config(page_title="Montador TFT", page_icon="🧩", layout="wide", initial_sidebar_state="collapsed")
 
 ADICIONAR, REMOVER = "➕ Adicionar", "➖ Remover"
-FONTES = ["Todas", "Para você", "Meta", "Minhas"]
+FONTES = ["Todas", "Para você", "Meta", "Minhas", "Suas"]
 BRANCO = "⠀"  # rótulo "vazio" para os botões de retrato
 SEGUNDOS_ENTRE_LEITURAS = 2
 SEGUNDOS_COM_TRACOS_TAPADOS = 10  # um balão tapando o painel de traços: mantém a leitura anterior até isso
@@ -80,6 +81,20 @@ def comps_da_meta(_catalogo, chave_situacao, partidas):  # `partidas` só serve 
 
 
 @st.cache_resource(show_spinner=False, max_entries=2)
+def suas_comps_aprendidas(_catalogo, partidas, nomes):  # `partidas` e `nomes` só servem para renovar o cache
+    meus = taticas.meus_tabuleiros(_catalogo, filas=(taticas.FILA_RANQUEADA, taticas.FILA_NORMAL))
+    return suas_comps.suas_comps(meus, taticas.ler_tabuleiros(_catalogo), _catalogo, json.loads(nomes))
+
+
+def suas_comps_atuais(catalogo):
+    """As comps que você repete (logica/suas_comps.py), com os nomes que você deu."""
+    conexao = banco.conectar()
+    nomes = banco.metadado(conexao, "nomes_das_comps", "[]")
+    conexao.close()
+    return suas_comps_aprendidas(catalogo, total_de_partidas(), nomes)
+
+
+@st.cache_resource(show_spinner=False, max_entries=2)
 def tabelas_de_taticas(_catalogo, partidas):
     """Tabelas da aba Táticas (calculadas uma vez por quantidade de partidas no banco)."""
     tabuleiros = taticas.ler_tabuleiros(_catalogo)
@@ -106,6 +121,17 @@ def tabelas_de_taticas(_catalogo, partidas):
     return {"partidas": len(tabuleiros) // 8, "por_nivel": por_nivel, "campeoes": campeoes, "tracos": tracos}
 
 
+@st.cache_resource(show_spinner=False, max_entries=2)
+def modelo_treinado(_catalogo, data_do_arquivo):  # `data_do_arquivo` só serve para renovar o cache ao treinar
+    return aprendizado.carregar(_catalogo)
+
+
+def modelo_atual(catalogo):
+    """O modelo do alto elo (aba Aprendizado), ou None se ainda não foi treinado."""
+    arquivo = aprendizado.ARQUIVO_DO_MODELO
+    return modelo_treinado(catalogo, arquivo.stat().st_mtime if arquivo.exists() else 0)
+
+
 # ---------------------------------------------------------------- estado do seu jogo
 
 def iniciar_estado():
@@ -119,6 +145,7 @@ def iniciar_estado():
     st.session_state.setdefault("emblemas_lidos", [])    # ids de traço dos emblemas no banco
     st.session_state.setdefault("compras_recentes", [])
     st.session_state.setdefault("painel_de_dano", acompanhamento.PainelDeDano())  # o último completo da partida
+    st.session_state.setdefault("gravacao", gravacao.Gravacao())  # a partida rodada a rodada (dados/partidas_gravadas)
     # o nível lido da tela só pode entrar antes de o campo "Nível" ser desenhado
     nivel_lido = st.session_state.pop("nivel_lido", None)
     if nivel_lido:
@@ -210,6 +237,7 @@ def leitura_da_tela(catalogo):
     painel = st.session_state.painel_de_dano
     painel_antes = list(painel.campeoes)
     painel.atualizar(leitura.painel_de_dano, leitura.estagio)
+    st.session_state.gravacao.registrar(leitura, painel)
     if any(d.startswith("?") for d in leitura.textos_crus.get("painel_de_dano", [])):
         diagnostico.guardar(tela, "painel-de-dano-em-duvida", "\n".join(leitura.textos_crus["painel_de_dano"]))
 
@@ -392,10 +420,14 @@ def coluna_comps(situacao, catalogo, componentes):
         comps += minhas
         if desconhecidos:
             st.warning("Campeões não encontrados no set atual: " + ", ".join(desconhecidos))
+    # as que você repete nas suas partidas (aba Aprendizado), com os seus números
+    suas = [suas_comps.para_o_app(sua, situacao, catalogo) for sua in suas_comps_atuais(catalogo)]
+    if fonte in ("Todas", "Suas"):
+        comps += suas
 
     # dá para escolher qualquer comp da lista, qualquer comp meta e qualquer comp sua
     candidatas = {}
-    for comp in comps + da_meta + minhas:
+    for comp in comps + da_meta + minhas + suas:
         candidatas.setdefault(chave_da_comp(comp), comp)
     escolhida = st.session_state.get("alvo_escolhido")
     if escolhida not in candidatas:
@@ -432,6 +464,10 @@ def coluna_comps(situacao, catalogo, componentes):
     da_comp = {c.id for c in alvo.campeoes} if alvo else set()
     provaveis = {c.id for c in provaveis_da_comp} | {c.id for c in fora.certos if c.id in da_comp}
     fora.certos = [c for c in fora.certos if c.id not in da_comp]
+    # com o modelo treinado: cada um de fora da comp FICA (vale no time final) ou é rotação
+    modelo = modelo_atual(catalogo) if fora.certos else None
+    trocas = aprendizado.avaliar_trocas(alvo, fora.certos, provaveis | set(situacao.unidades), modelo,
+                                        taticas.ler_tabuleiros(catalogo)) if modelo else []
     if fora.sem_combinacao:  # nenhum time fecha os traços lidos: guarda o print para conferir a leitura
         diagnostico.guardar(st.session_state.get("ultima_tela"), "tabuleiro-sem-combinacao",
                             detalhes_do_tabuleiro(leitura, alvo, provaveis_da_comp, catalogo))
@@ -464,15 +500,17 @@ def coluna_comps(situacao, catalogo, componentes):
         st.html(html_da_loja(leitura.loja, selos))
     estado_compartilhado.salvar(
         estado_compartilhado.montar(alvo, situacao, selos, catalogo, componentes, dicas_agora, frases_dos_itens,
-                                    provaveis, bigorna, fora, estrelas_lidas=estrelas_lidas,
+                                    provaveis, bigorna, fora, trocas, estrelas_lidas=estrelas_lidas,
                                     fora_do_jogo=bool(st.session_state.get("lendo")
                                                       and not st.session_state.get("tft_na_tela", True)))
     )
 
     if not comps:
         st.info("Nada para mostrar aqui ainda.")
+    modelo = modelo_atual(catalogo)
     for posicao, comp in enumerate(comps):
-        st.html(html_da_comp(comp, situacao, catalogo, componentes))
+        previsao = modelo.prever_comp(comp) if modelo else None
+        st.html(html_da_comp(comp, situacao, catalogo, componentes, previsao))
         _, em_comum = montador.combina_com_tabuleiro(comp, tracos_lidos)
         if em_comum:
             st.caption("🧩 Usa traços do seu tabuleiro: " + ", ".join(em_comum))
@@ -609,6 +647,167 @@ def aba_taticas(catalogo):
         st.caption("Poucos jogos com esse campeão segurando 3 itens.")
 
 
+def _media_e_jogos(tabuleiros):
+    if not tabuleiros:
+        return "—"
+    return f"{taticas.Desempenho([t.colocacao for t in tabuleiros]).media:.2f} em {len(tabuleiros)}"
+
+
+def secao_suas_comps(catalogo):
+    """As comps que você repete: seus números, o que falta quando não monta, o nome e a linha do tempo."""
+    suas = suas_comps_atuais(catalogo)
+    st.markdown(f"**🧠 Suas comps** (jogadas {suas_comps.MINIMO_DE_JOGOS} vezes ou mais)")
+    if not suas:
+        st.caption("Ainda não há uma comp que você jogou 3 vezes ou mais.")
+        return
+    st.dataframe(pd.DataFrame([
+        {"Comp": s.nome, "Jogos": len(s.tabuleiros), "Colocação média": round(s.desempenho.media, 2),
+         "Top 4": f"{s.desempenho.top4:.0%}", "Montada": _media_e_jogos(s.montadas),
+         "Não montada": _media_e_jogos(s.nao_montadas), "Seu nível": round(s.nivel_medio, 1),
+         "Alto elo parecido": _media_e_jogos(s.outros)}
+        for s in suas
+    ]), hide_index=True, width="stretch")
+    st.caption("Mesma comp = tabuleiros que dividem a maior parte dos campeões (o carry pode mudar). "
+               "Montada = com todos os campeões principais. As colunas mostram a colocação média em N partidas. "
+               "Aqui contam as ranqueadas e as normais.")
+
+    sua = st.selectbox("Ver a comp", suas, format_func=lambda s: f"{s.nome} ({len(s.tabuleiros)} jogos)",
+                       key="sua_comp_escolhida")
+    st.caption("Campeões principais: " + ", ".join(c.nome for c in sua.nucleo))
+    faltou = sua.o_que_faltou()
+    if faltou:
+        nao = sua.nao_montadas
+        oito_montada = sum(t.nivel >= 8 for t in sua.montadas) / len(sua.montadas) if sua.montadas else 0
+        oito_nao = sum(t.nivel >= 8 for t in nao) / len(nao)
+        st.markdown(f"Quando **não monta** ({len(nao)} partidas): faltou "
+                    + ", ".join(f"**{c.nome}** (custo {c.custo}, {n}x)" for c, n in faltou[:4])
+                    + f". Chegou ao nível 8: **{oito_nao:.0%}** das vezes, contra **{oito_montada:.0%}** quando monta.")
+    a, b = st.columns([3, 1], vertical_alignment="bottom")
+    nome = a.text_input("Nome da comp", value=sua.nome, key=f"nome_da_comp_{sua.nome_automatico}")
+    if b.button("💾 Salvar nome") and nome.strip() and nome.strip() != sua.nome:
+        conexao = banco.conectar()
+        banco.salvar_nome_da_comp(conexao, nome.strip(), [c.id for c in sua.nucleo])
+        conexao.commit()
+        conexao.close()
+        st.rerun()
+
+    conexao = banco.conectar()
+    fins = banco.datas_das_partidas(conexao, [t.match_id for t in sua.tabuleiros])
+    conexao.close()
+    partidas = [linha_do_tempo.momentos(linhas, catalogo) for linhas in gravacao.ler_gravacoes().values()
+                if linha_do_tempo.partida_da_gravacao(linhas, fins)]
+    if not partidas:
+        st.caption("📼 Linha do tempo: nenhuma partida gravada com essa comp ainda. Jogue com \"Ler a tela\" ligado "
+                   "e o painel de dano aberto (setinha \"<\" no lado direito do jogo).")
+        return
+    st.markdown(f"**📼 Linha do tempo** ({len(partidas)} partida(s) gravada(s) com essa comp): "
+                "como estava o seu jogo no começo de cada estágio")
+    st.dataframe(pd.DataFrame([
+        {"Estágio": linha.estagio, "Partidas": linha.partidas,
+         "Nível": None if linha.nivel_medio is None else round(linha.nivel_medio, 1),
+         "Ouro": None if linha.ouro_medio is None else round(linha.ouro_medio),
+         "Da comp em campo": f"{linha.do_nucleo:.1f} de {len(sua.nucleo)}",
+         "Mais comuns em campo": ", ".join(f"{nome} ({p:.0%})" if len(partidas) > 1 else nome
+                                           for nome, p in linha.comuns)}
+        for linha in linha_do_tempo.por_estagio(partidas, sua.nucleo, comuns=10)
+    ]), hide_index=True, width="stretch")
+
+
+def aba_aprendizado(catalogo):
+    """Etapa 1: suas partidas x alto elo. Etapa 2: o modelo que aprende com o alto elo."""
+    alto_elo = taticas.ler_tabuleiros(catalogo)
+    st.markdown("**1. Suas partidas**")
+    conexao = banco.conectar()
+    a, b = st.columns([3, 2], vertical_alignment="bottom")
+    texto = a.text_input("Seus Riot IDs (separados por vírgula)", value=", ".join(banco.minhas_contas(conexao)),
+                         placeholder="nome#tag, outra#tag")
+    riot_ids = [r.strip() for r in texto.split(",") if r.strip()]
+    if b.button("⬇️ Baixar minhas partidas (últimas 30 de cada conta)") and riot_ids:
+        with st.status("Baixando suas partidas...", expanded=True) as status:
+            try:
+                novas = sum(riot.coletar_minhas_partidas(conexao, riot.ler_chave() or "", r, progresso=status.write)
+                            for r in riot_ids)
+                status.update(label=f"Pronto: {novas} partidas novas.", state="complete")
+            except riot.ErroRiot as erro:
+                status.update(label=str(erro), state="error")
+    contas = banco.minhas_contas(conexao)
+    conexao.close()
+
+    meus = taticas.meus_tabuleiros(catalogo)
+    if meus:
+        geral = meu_desempenho.resumo(meus, alto_elo)
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Colocação média", f"{geral.colocacao_media:.2f}", help=f"{geral.jogos} partidas ranqueadas")
+        c2.metric("Top 4", f"{geral.top4:.0%}")
+        c3.metric("Vitórias", f"{geral.vitorias:.0%}")
+        c4.metric("Nível final", f"{geral.nivel_medio:.1f}", delta_color="off",
+                  delta=f"{geral.nivel_medio - geral.nivel_medio_alto_elo:+.1f} que o alto elo")
+        if len(contas) > 1:
+            st.dataframe(pd.DataFrame([
+                {"Conta": l.conta, "Jogos": l.jogos, "Colocação média": round(l.colocacao_media, 2),
+                 "Top 4": f"{l.top4:.0%}", "Vitórias": f"{l.vitorias:.0%}"}
+                for l in meu_desempenho.por_conta(meus, contas)
+            ]), hide_index=True, width="stretch")
+        st.dataframe(pd.DataFrame([
+            {"Comp": l.nome, "Jogos": l.jogos, "Sua colocação": round(l.sua_colocacao, 2),
+             "Seu top 4": f"{l.seu_top4:.0%}", "Alto elo": None if l.alto_elo_colocacao is None
+             else round(l.alto_elo_colocacao, 2), "Jogos do alto elo": l.alto_elo_jogos,
+             "Seu nível": round(l.seu_nivel, 1),
+             "Nível do alto elo": None if l.alto_elo_nivel is None else round(l.alto_elo_nivel, 1)}
+            for l in meu_desempenho.por_comp(meus, alto_elo, catalogo)
+        ]), hide_index=True, width="stretch")
+        st.caption("Comp = carry (quem tem mais itens) + 2 traços principais, como nas comps meta. "
+                   "Alto elo: colocação média ajustada de quem terminou com a mesma comp.")
+        secao_suas_comps(catalogo)
+    else:
+        st.caption("Coloque seu Riot ID e baixe suas partidas para comparar com o alto elo.")
+
+    st.markdown("**2. Modelo do alto elo**")
+    st.caption("O modelo olha o tabuleiro final (campeões, estrelas, traços, nível e itens) e prevê a colocação. "
+               "É o tabuleiro FINAL: quem cai cedo tem tabuleiro fraco porque caiu. Então ele diz quanto vale "
+               "uma comp montada por completo, não a sua chance no meio da partida.")
+    if st.button("🤖 Treinar modelo (uns 15 segundos)"):
+        with st.spinner("Treinando..."):
+            try:
+                aprendizado.salvar(aprendizado.treinar(alto_elo, catalogo, progresso=lambda _texto: None))
+            except ValueError as erro:
+                st.error(str(erro))
+    modelo = modelo_atual(catalogo)
+    if not modelo:
+        st.info("Ainda não há modelo treinado para este set.")
+        return
+    a = modelo.avaliacao
+    st.markdown(f"Teste em **{a.partidas_de_teste} partidas** que o modelo não viu no treino "
+                f"(treinado com {a.partidas_de_treino}):")
+    st.dataframe(pd.DataFrame([
+        {"Medida": "Erro médio da colocação", "Modelo": f"{a.erro_do_modelo:.2f} posição",
+         "Sem modelo": f"{a.erro_sem_modelo:.2f} (chutando 4,5)"},
+        {"Medida": "Acerta se ficou no top 4", "Modelo": f"{a.acerto_top4_modelo:.0%}", "Sem modelo": "50% (chute)"},
+        {"Medida": "Ordem dos 8 jogadores da partida (0 a 1)", "Modelo": f"{a.ordem_do_modelo:.2f}",
+         "Sem modelo": f"{a.ordem_da_regra:.2f} (nota feita à mão do app)"},
+        {"Medida": "Troca de um campeão: acerta qual tabuleiro colocou melhor (FICA/TROCA)",
+         "Modelo": "—" if a.acerto_das_trocas is None else f"{a.acerto_das_trocas:.0%} em {a.pares_de_trocas} pares",
+         "Sem modelo": "50% (chute)" if a.acerto_das_trocas_pelo_custo is None
+         else f"{a.acerto_das_trocas_pelo_custo:.0%} (o mais caro é melhor)"},
+    ]), hide_index=True, width="stretch")
+    if a.acerto_das_trocas is None:
+        st.caption("⚠️ Treine o modelo de novo para testar a troca de um campeão (FICA/TROCA no overlay).")
+    elif not modelo.trocas_confiaveis:
+        st.caption(f"⚠️ A troca de um campeão acertou menos de {aprendizado.ACERTO_MINIMO_DAS_TROCAS:.0%} no teste: "
+                   "no overlay, FICA/TROCA aparece como experimental (com '?').")
+    if meus:
+        previstas, _ = modelo.prever([aprendizado.vetor_do_tabuleiro(t, modelo.colunas) for t in meus])
+        real = sum(t.colocacao for t in meus) / len(meus)
+        st.markdown(f"**Seus tabuleiros finais, pelo modelo:** valiam em média **{previstas.mean():.2f}**; "
+                    f"você terminou em **{real:.2f}** (o modelo aprendeu com lobbies de alto elo; nos seus, "
+                    "os adversários costumam ser mais fracos, então parte da diferença vem daí). "
+                    + ("Você coloca melhor do que o tabuleiro sugere (bom posicionamento/economia)."
+                       if real < previstas.mean() - 0.3 else
+                       "Você coloca pior do que o tabuleiro sugere: vale olhar posicionamento e o momento de "
+                       "montar o time." if real > previstas.mean() + 0.3 else
+                       "Você coloca mais ou menos o que o tabuleiro vale."))
+
+
 TABELAS_DO_BANCO = ["campeoes", "tracos", "traco_niveis", "campeao_traco", "itens", "augments",
                     "partidas", "participacoes", "metadados"]
 
@@ -651,14 +850,17 @@ with direita:
     st.subheader("🧩 Comps")
     coluna_comps(situacao, catalogo, componentes)
     st.divider()
-    abas = st.tabs(["🧠 Táticas", "🗡️ Itens", "🎲 Loja", "📌 Cadastrar minhas comps", "📚 Banco de dados"])
+    abas = st.tabs(["🧠 Táticas", "🤖 Aprendizado", "🗡️ Itens", "🎲 Loja", "📌 Cadastrar minhas comps",
+                    "📚 Banco de dados"])
     with abas[0]:
         aba_taticas(catalogo)
     with abas[1]:
-        aba_itens(catalogo, componentes)
+        aba_aprendizado(catalogo)
     with abas[2]:
-        aba_loja(situacao, catalogo)
+        aba_itens(catalogo, componentes)
     with abas[3]:
-        aba_cadastro(catalogo)
+        aba_loja(situacao, catalogo)
     with abas[4]:
+        aba_cadastro(catalogo)
+    with abas[5]:
         aba_banco()

@@ -8,5 +8,7 @@ dados/overlay.tmp
 dados/icones/
 static/icones/
 dados/*.db-journal
+dados/modelo.joblib
 dados/diagnostico/
+dados/partidas_gravadas/
 documentacao/
